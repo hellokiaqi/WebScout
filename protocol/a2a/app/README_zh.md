@@ -1,194 +1,103 @@
-# Manus Agent with A2A Protocol
+# WebScout A2A 协议服务端（`Manus` Agent）
 
-这是一个将A2A协议(https://google.github.io/A2A/#/documentation)与OpenManus结合的一个尝试,当前仅支持非流式
+[English](README.md) | 简体中文
 
-## Prerequisites
-- conda activate 'Your OpenManus python env'
-- pip install a2a-sdk==0.2.5
+本模块是 Google [Agent2Agent (A2A) 协议](https://google.github.io/A2A/#/documentation) 的实验性 HTTP 服务端适配，将 WebScout 底层的通用多工具 `Manus` 智能体封装为 `A2AManus` 对外提供服务。
 
+> 当前状态：仅支持非流式 JSON-RPC `message/send` 调用（`streaming = False`，`pushNotifications = True`）。每次请求由 `ManusExecutor` 创建 `A2AManus` 实例（默认 `max_steps = 3`）执行并返回文本产物。
 
+---
 
-## Setup & Running
+## 核心文件说明
 
-1. 运行A2A Server:
+- `protocol/a2a/app/main.py`：基于 Starlette + Uvicorn 的服务启动入口（支持 `--host`、`--port`），负责构建 `AgentCard` 并注册 5 项技能描述（`Python Execute`、`Browser use`、`Replace String`、`Ask human`、`terminate`）。
+- `protocol/a2a/app/agent.py`：`A2AManus(Manus)` 子类，实现 `invoke()` 接口并声明 `SUPPORTED_CONTENT_TYPES = ["text", "text/plain"]`（`stream()` 会抛出 `NotImplementedError`）。
+- `protocol/a2a/app/agent_executor.py`：`ManusExecutor(AgentExecutor)`，负责从 A2A `RequestContext` 读取用户输入、调用 `A2AManus.invoke()`，并将结果封装为 `Task` 产物写入 `EventQueue`。
 
-   ```bash
-   cd OpenManus
-   python -m protocol.a2a.app.main
-   ```
+---
 
-2. 拉取A2A官方库并运行A2A Client，有两种使用A2A客户端的方式——CLI以及在前端页面注册Agent服务。（详情参考https://github.com/google/A2A）:
+## 环境准备
 
-   ```bash
-   git clone https://github.com/google-a2a/a2a-samples.git
-   cd a2a-samples
-   echo "GOOGLE_API_KEY=your_api_key_here" > .env
-   cd samples/python/hosts/cli
-   uv run .
-   ```
+1. 在 WebScout 仓库根目录激活 Python 3.12 虚拟环境，安装主依赖（`uv pip install -r requirements.txt`）并配置好 `config/config.toml`。
+2. 额外安装 A2A SDK 与 `python-dotenv`（`protocol/a2a/app/main.py` 启动时调用 `load_dotenv()`）：
 
-3. 通过A2A Client的命令行向OpenManus发送任务或者在A2A前端页面上将其注册
-
-
-## Examples
-
-**获得Agent Card**
-
-Request:
-
+```bash
+uv pip install a2a-sdk==0.2.5 python-dotenv
 ```
+
+---
+
+## 启动服务
+
+在 WebScout 仓库根目录下执行：
+
+```bash
+python -m protocol.a2a.app.main --host localhost --port 10000
+```
+
+| 命令行参数 | 默认值 | 说明 |
+| --- | --- | --- |
+| `--host` | `localhost` | 服务监听主机地址（同时写入 `AgentCard.url`）。 |
+| `--port` | `10000` | 服务监听端口。 |
+
+---
+
+## 接口调用示例
+
+### 1. 获取 Agent Card
+
+```bash
 curl http://localhost:10000/.well-known/agent.json
-
 ```
 
+返回结果核心字段示例：
 
-```
-Response:
-
+```json
 {
-    "capabilities": {
-        "pushNotifications": true,
-        "streaming": false
-    },
-    "defaultInputModes": [
-        "text",
-        "text/plain"
-    ],
-    "defaultOutputModes": [
-        "text",
-        "text/plain"
-    ],
-    "description": "A versatile agent that can solve various tasks using multiple tools including MCP-based tools",
-    "name": "Manus Agent",
-    "skills": [
-        {
-            "description": "Executes Python code string. Note: Only print outputs are visible, function return values are not captured. Use print statements to see results.",
-            "examples": [
-                "Execute Python code:'''python \n Print('Hello World') \n '''"
-            ],
-            "id": "Python Execute",
-            "name": "Python Execute Tool",
-            "tags": [
-                "Execute Python Code"
-            ]
-        },
-        {
-            "description": "A powerful browser automation tool that allows interaction with web pages through various actions.\n* This tool provides commands for controlling a browser session, navigating web pages, and extracting information\n* It maintains state across calls, keeping the browser session alive until explicitly closed\n* Use this when you need to browse websites, fill forms, click buttons, extract content, or perform web searches\n* Each action requires specific parameters as defined in the tool's dependencies\n\nKey capabilities include:\n* Navigation: Go to specific URLs, go back, search the web, or refresh pages\n* Interaction: Click elements, input text, select from dropdowns, send keyboard commands\n* Scrolling: Scroll up/down by pixel amount or scroll to specific text\n* Content extraction: Extract and analyze content from web pages based on specific goals\n* Tab management: Switch between tabs, open new tabs, or close tabs\n\nNote: When using element indices, refer to the numbered elements shown in the current browser state.\n",
-            "examples": [
-                "go_to 'https://www.google.com'"
-            ],
-            "id": "Browser use",
-            "name": "Browser use Tool",
-            "tags": [
-                "Use Browser"
-            ]
-        },
-        {
-            "description": "Custom editing tool for viewing, creating and editing files\n* State is persistent across command calls and discussions with the user\n* If `path` is a file, `view` displays the result of applying `cat -n`. If `path` is a directory, `view` lists non-hidden files and directories up to 2 levels deep\n* The `create` command cannot be used if the specified `path` already exists as a file\n* If a `command` generates a long output, it will be truncated and marked with `<response clipped>`\n* The `undo_edit` command will revert the last edit made to the file at `path`\n\nNotes for using the `str_replace` command:\n* The `old_str` parameter should match EXACTLY one or more consecutive lines from the original file. Be mindful of whitespaces!\n* If the `old_str` parameter is not unique in the file, the replacement will not be performed. Make sure to include enough context in `old_str` to make it unique\n* The `new_str` parameter should contain the edited lines that should replace the `old_str`\n",
-            "examples": [
-                "Replace 'old' with 'new' in 'file.txt'"
-            ],
-            "id": "Replace String",
-            "name": "Str_replace Tool",
-            "tags": [
-                "Operate Files"
-            ]
-        },
-        {
-            "description": "Use this tool to ask human for help.",
-            "examples": [
-                "Ask human: 'What time is it?'"
-            ],
-            "id": "Ask human",
-            "name": "Ask human Tool",
-            "tags": [
-                "Ask human for help"
-            ]
-        },
-        {
-            "description": "Terminate the interaction when the request is met OR if the assistant cannot proceed further with the task.\nWhen you have finished all the tasks, call this tool to end the work.",
-            "examples": [
-                "terminate"
-            ],
-            "id": "terminate",
-            "name": "terminate Tool",
-            "tags": [
-                "terminate task"
-            ]
-        }
-    ],
-    "url": "http://localhost:10000/",
-    "version": "1.0.0"
+  "capabilities": {
+    "pushNotifications": true,
+    "streaming": false
+  },
+  "defaultInputModes": ["text", "text/plain"],
+  "defaultOutputModes": ["text", "text/plain"],
+  "description": "A versatile agent that can solve various tasks using multiple tools including MCP-based tools",
+  "name": "Manus Agent",
+  "url": "http://localhost:10000/",
+  "version": "1.0.0"
 }
 ```
 
-**发送任务**
+### 2. 发送任务（JSON-RPC `message/send`）
 
-Request:
-
-```
-curl --location 'http://localhost:10000' \
---header 'Content-Type: application/json' \
---data '{
-    "id":130,
-    "jsonrpc":"2.0",
+```bash
+curl --location 'http://localhost:10000/' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "id": 1,
+    "jsonrpc": "2.0",
     "method": "message/send",
     "params": {
-        "message": {
-            "messageId": "",
-            "role": "user",
-            "parts": [{"text":"什么是快乐星球"}]
-        }
+      "message": {
+        "messageId": "msg-001",
+        "role": "user",
+        "parts": [{"text": "使用 Python 计算前 10 个斐波那契数并打印结果"}]
+      }
     }
-}'
+  }'
 ```
 
-Response:
+### 3. 使用官方 A2A 示例客户端连接（可选）
 
-```
-{
-    "id": 130,
-    "jsonrpc": "2.0",
-    "result": {
-        "artifacts": [
-            {
-                "artifactId": "2f9d0af8-c7da-4f88-9c8c-3033836322b8",
-                "description": "",
-                "name": "task_cf64d3c9-1e08-4948-a620-76900aa204cf",
-                "parts": [
-                    {
-                        "kind": "text",
-                        "text": "Step 1: “快乐星球”是一个流行的网络用语，源自中国儿童科幻电视剧《快乐星球》。这部剧讲述了一群孩子在一个虚构的“快乐星球”上经历的冒险故事，主题围绕着友谊、成长和科学幻想。后来，“快乐星球”逐渐成为一种网络梗，用来形容一种无忧无虑、充满快乐的理想状态。\n\n如果你对这个词的具体含义、出处或者相关的文化背景有更多兴趣，可以告诉我，我可以为你提供更详细的信息！\nStep 2: Observed output of cmd `terminate` executed:\nThe interaction has been completed with status: success"
-                    }
-                ]
-            }
-        ],
-        "contextId": "44d16c16-9ccf-49c2-9a99-5c9513969b5f",
-        "history": [
-            {
-                "contextId": "44d16c16-9ccf-49c2-9a99-5c9513969b5f",
-                "kind": "message",
-                "messageId": "",
-                "parts": [
-                    {
-                        "kind": "text",
-                        "text": "什么是快乐星球"
-                    }
-                ],
-                "role": "user",
-                "taskId": "cf64d3c9-1e08-4948-a620-76900aa204cf"
-            }
-        ],
-        "id": "cf64d3c9-1e08-4948-a620-76900aa204cf",
-        "kind": "task",
-        "status": {
-            "state": "completed"
-        }
-    }
-}
+也可以克隆 [`google-a2a/a2a-samples`](https://github.com/google-a2a/a2a-samples)，通过官方 CLI 或前端宿主注册 `http://localhost:10000`：
+
+```bash
+git clone https://github.com/google-a2a/a2a-samples.git
+cd a2a-samples/samples/python/hosts/cli
+uv run . --agent http://localhost:10000
 ```
 
+---
 
-## Learn More
+## 参考链接
 
-- [A2A Protocol Documentation](https://google.github.io/A2A/#/documentation)
+- [A2A 协议官方文档](https://google.github.io/A2A/#/documentation)

@@ -1,147 +1,135 @@
-# 图表可视化工具
+# 图表可视化工具（Chart Visualization Tool）
 
-图表可视化工具，通过python生成数据处理代码，最终调用[@visactor/vmind](https://github.com/VisActor/VMind)得到图表的spec结果，图表渲染使用[@visactor/vchart](https://github.com/VisActor/VChart)
+[English](README.md) | 简体中文 | [日本語](README_ja.md) | [한국어](README_ko.md)
 
-## 安装(Mac / Linux)
+`app/tool/chart_visualization` 为 WebScout 的数据分析智能体 `DataAnalysis`（`app/agent/data_analysis.py`）提供数据处理与图表生成能力。工具链通过 Python（`pandas`）完成数据清洗与元数据准备，再通过子进程调用 TypeScript 脚本（`src/chartVisualize.ts`），借助 [@visactor/vmind](https://github.com/VisActor/VMind) 生成图表规格（Spec）与数据洞察，使用 [@visactor/vchart](https://github.com/VisActor/VChart) 渲染交互式 HTML 图表，或通过 `puppeteer` 导出静态 PNG 图片。
 
-1. 安装node >= 18
+---
+
+## 环境要求与安装
+
+1. **Python 环境**：激活 WebScout 虚拟环境并安装根目录依赖（`uv pip install -r requirements.txt`，其中 `pandas` 会随 `datasets` 自动安装；若使用精简环境可手动执行 `uv pip install pandas`），并在 `config/config.toml` 中配置有效的 `[llm]` 接口。
+2. **Node.js >= 18**：用于运行 `npx ts-node src/chartVisualize.ts` 及 `puppeteer`。
+
+### macOS / Linux
 
 ```bash
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
-# 激活nvm，以Bash为例
-source ~/.bashrc
-# 然后安装 Node 最近一个稳定颁布
-nvm install node
-# 激活使用，例如最新一个稳定颁布为22，则use 22
+# 安装并启用 Node.js >= 18（以 nvm 为例）
+nvm install 22
 nvm use 22
-```
 
-2. 安装依赖
-
-```bash
+# 进入图表工具目录安装前端依赖
 cd app/tool/chart_visualization
 npm install
 ```
 
-## 安装(Windows)
-1. 安装nvm-windows
-
-    从[github官网](https://github.com/coreybutler/nvm-windows?tab=readme-ov-file#readme)上下载最新版本`nvm-setup.exe`并且安装
-
-2. 使用nvm安装node
+### Windows（PowerShell）
 
 ```powershell
-# 然后安装 Node 最近一个稳定颁布
-nvm install node
-# 激活使用，例如最新一个稳定颁布为22，则use 22
+# 安装并启用 Node.js >= 18（可通过 nvm-windows 或 Node.js 官网安装包）
+nvm install 22
 nvm use 22
-```
 
-3. 安装依赖
-
-```bash
-# 在当前仓库下定位到相应位置
+# 进入图表工具目录安装前端依赖
 cd app/tool/chart_visualization
 npm install
 ```
-## Tool
-### python_execute
 
-用python代码执行数据分析（除数据可视化以外）中需要的部分，包括数据处理，数据总结摘要，报告生成以及一些通用python脚本代码
+---
 
-#### 输入
-```typescript
+## 工具说明
+
+`DataAnalysis` 智能体组合了本目录下的三个核心工具（以及 `terminate`）：
+
+### 1. `python_execute`（`python_execute.py` -> `NormalPythonExecute`）
+
+执行通用数据分析与报表脚本（默认单次超时 `timeout = 5` 秒），用于数据集概览、指标计算、异常值筛查以及在 `workspace/` 下生成文本或 HTML 分析报告。
+
+**输入参数**：
+
+```json
 {
-  // 代码类型：数据处理/数据报告/其他通用任务
-  code_type: "process" | "report" | "others"
-  // 最终执行代码
-  code: string;
+  "code_type": "process | report | others",
+  "code": "Python 代码字符串，需使用 print() 输出关键分析结果"
 }
 ```
 
-#### 输出
-python执行结果，带有中间文件的保存和print输出结果
+### 2. `visualization_preparation`（`chart_prepare.py` -> `VisualizationPrepare`）
 
-### visualization_preparation
+在正式绑图前运行 Python 代码生成 CSV 数据与 JSON 配置文件，支持两种模式：
 
-数据可视化前置工具，有两种用途，
+- **`code_type = "visualization"`（数据 -> 图表）**：将原始数据清洗并保存为 `.csv`，生成形如 `[{"csvFilePath": "path/to/data.csv", "chartTitle": "图表标题或描述"}]` 的 UTF-8 JSON 文件。
+- **`code_type = "insight"`（图表 + 洞察 -> 图表标注）**：从已生成图表的洞察列表中挑选需要叠加标注的序号（从 1 开始），生成形如 `[{"chartPath": "path/to/chart.html", "insights_id": [1, 2]}]` 的 JSON 文件。
 
-#### Data -〉 Chart
-用于从数据中提取需要分析的数据(.csv)和对应可视化的描述，最终输出一份json配置文件。
+**输入参数**：
 
-#### Chart + Insight -> Chart
-选取已有的图表和对应的数据洞察，挑选数据洞察以数据标注的形式增加到图表中，最终生成一份json配置文件。
-
-#### 输入
-```typescript
+```json
 {
-  // 代码类型：数据可视化 或者 数据洞察添加
-  code_type: "visualization" | "insight"
-  // 用于生产最终json文件的python代码
-  code: string;
+  "code_type": "visualization | insight",
+  "code": "用于生成 CSV 与 JSON 元数据并 print(json_path) 的 Python 代码"
 }
 ```
 
-#### 输出
-数据可视化的配置文件，用于`data_visualization tool`
+### 3. `data_visualization`（`data_visualization.py` -> `DataVisualization`）
 
+读取 `visualization_preparation` 生成的 JSON 配置文件，用 `pandas` 加载 CSV 数据后通过 `stdin`/`stdout` 调用 `npx ts-node src/chartVisualize.ts`。
 
-## data_visualization
+**输入参数（`execute`）**：
 
-根据`visualization_preparation`的内容，生成具体的数据可视化
-
-### 输入
-```typescript
+```json
 {
-  // 配置文件路径
-  json_path: string;
-  // 当前用途，数据可视化或者洞察标注添加
-  tool_type: "visualization" | "insight";
-  // 最终产物png或者html;html下支持vchart渲染和交互
-  output_type: 'png' | 'html'
-  // 语言,目前支持中文和英文
-  language: "zh" | "en"
+  "json_path": "workspace/chart_meta.json",
+  "output_type": "html | png",
+  "tool_type": "visualization | insight",
+  "language": "en | zh"
 }
 ```
 
-## 输出
-最终以'png'或者'html'的形式保存在本地，输出保存的图表路径以及图表中发现的数据洞察
+- `output_type`：`DataVisualization.execute()` 默认值为 `"html"`（支持 VChart 交互渲染）；设为 `"png"` 时通过 Puppeteer 渲染静态图片（仅当底层 `src/chartVisualize.ts` 未收到该字段时才会回退为 `"png"`）。
+- `tool_type`：`"visualization"` 用于生成图表并提取最多 6 条统计洞察（支持柱状图、折线图、面积图、散点图、双轴图）；`"insight"` 用于将选定的洞察标注写回已有图表。
+- `language`：数据洞察输出语言，支持 `"en"`（默认）与 `"zh"`。
 
-## VMind配置
+**本地输出产物**（统一保存在 `workspace/visualization/` 目录下）：
 
-### LLM
+- `<file_name>.html` 或 `<file_name>.png`：最终图表文件。
+- `<file_name>.json`：VChart 图表 Spec 与 VMind 洞察原始结构。
+- `<file_name>.md`：按序号整理的 Markdown 数据洞察说明（当图表类型支持洞察提取时生成）。
 
-VMind本身也需要通过调用大模型得到智能图表生成结果，目前默认会使用`config.llm["default"]`配置
+---
 
-### 生成配置
+## VMind 与渲染配置说明
 
-主要生成配置包括图表的宽高、主题以及生成方式；
-### 生成方式
-默认为png，目前支持大模型根据上下文自己选择`output_type`
+- **大模型调用**：`DataVisualization.invoke_vmind()` 默认读取 `config.llm["default"]` 的 `base_url`、`model`、`api_key`，向 `${baseUrl}/chat/completions` 发起请求，因此 `[llm]` 需配置兼容 OpenAI Chat Completions 格式的接口。
+- **尺寸与主题**：默认采用 VChart `"light"` 亮色主题（`theme: "light"`）。HTML 输出默认占满容器宽高（`100%`）；PNG 输出由无头浏览器渲染 Canvas 后导出。
 
-### 宽高
-目前默认不指定宽高，`html`下默认占满整个页面，'png'下默认为`1000 * 1000`
+---
 
-### 主题
-目前默认主题为`'light'`，VChart图表支持多种主题，详见[主题](https://www.visactor.io/vchart/guide/tutorial_docs/Theme/Theme_Extension)
+## 使用方式与演示脚本
 
+### 在 `run_flow.py` 中启用数据分析 Agent
 
-## 测试
+修改 `config/config.toml` 中的 `[runflow]` 配置即可在多步规划流中挂载 `DataAnalysis`：
 
-当前设置了三种不同难度的任务用于测试
-
-### 简单图表生成任务
-
-给予数据和具体的图表生成需求，测试结果，执行命令：
-```bash
-python -m app.tool.chart_visualization.test.chart_demo
+```toml
+[runflow]
+flow_type = "planning"
+use_data_analysis_agent = true
 ```
-结果应位于`worksapce\visualization`下，涉及到9种不同的图表结果
 
-### 简单数据报表任务
+随后运行 `python run_flow.py` 即可。
 
-给予简单原始数据可分析需求，需要对数据进行简单加工处理，执行命令：
-```bash
-python -m app.tool.chart_visualization.test.report_demo
-```
-结果同样位于`worksapce\visualization`下
+### 运行内置测试示例
+
+`app/tool/chart_visualization/test/` 目录下提供了**两个**可直接运行的演示脚本（请在 WebScout 仓库根目录下执行）：
+
+1. **多类型图表生成测试**（连续运行 9 组数据场景，涵盖分地区销量、品牌份额、销售趋势、热词热度、电动车散点对比、漏斗转化率、男女早餐对比、六维能力雷达图与流向图）：
+   ```bash
+   python -m app.tool.chart_visualization.test.chart_demo
+   ```
+
+2. **图文数据报告生成测试**（分析多团队月度工时数据并生成带图表的完整 HTML 分析报告）：
+   ```bash
+   python -m app.tool.chart_visualization.test.report_demo
+   ```
+
+运行完成后，生成的图表与报告均位于 `workspace/visualization/` 目录下。

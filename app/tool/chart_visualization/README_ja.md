@@ -1,114 +1,133 @@
-# グラフ可視化ツール
+# グラフ可視化ツール（Chart Visualization Tool）
 
-グラフ可視化ツールは、Pythonを使用してデータ処理コードを生成し、最終的に[@visactor/vmind](https://github.com/VisActor/VMind)を呼び出してグラフのspec結果を得ます。グラフのレンダリングには[@visactor/vchart](https://github.com/VisActor/VChart)を使用します。
+[English](README.md) | [简体中文](README_zh.md) | 日本語 | [한국어](README_ko.md)
 
-## インストール (Mac / Linux)
+`app/tool/chart_visualization` は WebScout のデータ分析エージェント `DataAnalysis`（`app/agent/data_analysis.py`）向けのグラフ生成ツール群です。Python（`pandas`）でデータ整形とメタデータ作成を行い、TypeScript スクリプト（`src/chartVisualize.ts`）から [@visactor/vmind](https://github.com/VisActor/VMind) を呼び出してチャート仕様（Spec）とデータインサイトを生成し、[@visactor/vchart](https://github.com/VisActor/VChart) による対話型 HTML または `puppeteer` による PNG 画像として出力します。
 
-1. Node >= 18をインストール
+---
+
+## 前提条件とインストール
+
+1. **Python 環境**：WebScout の仮想環境を有効化し、ルート依存関係をインストールしたうえで（`uv pip install -r requirements.txt`。最小環境の場合は `uv pip install pandas` も実行）、`config/config.toml` の `[llm]` を設定してください。
+2. **Node.js >= 18**：`npx ts-node src/chartVisualize.ts` と `puppeteer` の実行に必要です。
+
+### macOS / Linux
 
 ```bash
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
-# nvmを有効化、例としてBashを使用
-source ~/.bashrc
-# その後、最新の安定版Nodeをインストール
-nvm install node
-# 使用を有効化、例えば最新の安定版が22の場合、use 22
+# Node.js >= 18 をインストール（nvm の例）
+nvm install 22
 nvm use 22
-```
 
-2. 依存関係をインストール
-
-```bash
+# チャート可視化ツールの依存パッケージをインストール
 cd app/tool/chart_visualization
 npm install
 ```
 
-## インストール (Windows)
-1. nvm-windowsをインストール
-
-    [GitHub公式サイト](https://github.com/coreybutler/nvm-windows?tab=readme-ov-file#readme)から最新バージョンの`nvm-setup.exe`をダウンロードしてインストール
-
-2. nvmを使用してNodeをインストール
+### Windows（PowerShell）
 
 ```powershell
-# その後、最新の安定版Nodeをインストール
-nvm install node
-# 使用を有効化、例えば最新の安定版が22の場合、use 22
+# Node.js >= 18 をインストール（nvm-windows または公式インストーラ）
+nvm install 22
 nvm use 22
-```
 
-3. 依存関係をインストール
-
-```bash
-# 現在のリポジトリで適切な位置に移動
+# チャート可視化ツールの依存パッケージをインストール
 cd app/tool/chart_visualization
 npm install
 ```
 
-## ツール
-### python_execute
+---
 
-Pythonコードを使用してデータ分析（データ可視化を除く）に必要な部分を実行します。これにはデータ処理、データ要約、レポート生成、および一般的なPythonスクリプトコードが含まれます。
+## ツール構成
 
-#### 入力
-```typescript
+`DataAnalysis` エージェントは以下の 3 つのツール（および `terminate`）を使用します。
+
+### 1. `python_execute`（`python_execute.py` -> `NormalPythonExecute`）
+
+データ前処理、基本統計量の算出、外れ値確認、テキスト／HTML レポート作成のための Python コードを実行します（デフォルトのタイムアウトは `5` 秒）。
+
+**入力パラメータ**：
+
+```json
 {
-  // コードタイプ：データ処理/データレポート/その他の一般的なタスク
-  code_type: "process" | "report" | "others"
-  // 最終実行コード
-  code: string;
+  "code_type": "process | report | others",
+  "code": "print() で分析結果を出力する Python コード"
 }
 ```
 
-#### 出力
-Python実行結果、中間ファイルの保存とprint出力結果を含む
+### 2. `visualization_preparation`（`chart_prepare.py` -> `VisualizationPrepare`）
 
-### visualization_preparation
+Python コードを実行し、`data_visualization` に渡す CSV ファイルと JSON 設定ファイルを生成します。
 
-データ可視化の準備ツールで、2つの用途があります。
+- **`code_type = "visualization"`（Data -> Chart）**：元データを整形して `.csv` に保存し、`[{"csvFilePath": "path/to/data.csv", "chartTitle": "グラフの説明"}]` 形式の UTF-8 JSON ファイルを出力します。
+- **`code_type = "insight"`（Chart + Insight -> Chart）**：生成済みグラフのインサイト番号（1 始まり）を選択し、`[{"chartPath": "path/to/chart.html", "insights_id": [1, 2]}]` 形式の JSON ファイルを出力します。
 
-#### Data -> Chart
-データから分析に必要なデータ(.csv)と対応する可視化の説明を抽出し、最終的にJSON設定ファイルを出力します。
+**入力パラメータ**：
 
-#### Chart + Insight -> Chart
-既存のグラフと対応するデータインサイトを選択し、データインサイトをデータ注釈の形式でグラフに追加し、最終的にJSON設定ファイルを生成します。
-
-#### 入力
-```typescript
+```json
 {
-  // コードタイプ：データ可視化またはデータインサイト追加
-  code_type: "visualization" | "insight"
-  // 最終的なJSONファイルを生成するためのPythonコード
-  code: string;
+  "code_type": "visualization | insight",
+  "code": "CSV と JSON 設定ファイルを生成してパスを print する Python コード"
 }
 ```
 
-#### 出力
-データ可視化の設定ファイル、`data_visualization tool`で使用
+### 3. `data_visualization`（`data_visualization.py` -> `DataVisualization`）
 
-## data_visualization
+`visualization_preparation` が作成した JSON ファイルを読み込み、`pandas` で CSV を変換して `npx ts-node src/chartVisualize.ts` を実行します。
 
-`visualization_preparation`の内容に基づいて具体的なデータ可視化を生成
+**入力パラメータ（`execute`）**：
 
-### 入力
-```typescript
+```json
 {
-  // 設定ファイルのパス
-  json_path: string;
-  // 現在の用途、データ可視化またはインサイト注釈追加
-  tool_type: "visualization" | "insight";
-  // 最終成果物pngまたはhtml;htmlではvchartのレンダリングとインタラクションをサポート
-  output_type: 'png' | 'html'
-  // 言語、現在は中国語と英語をサポート
-  language: "zh" | "en"
+  "json_path": "workspace/chart_meta.json",
+  "output_type": "html | png",
+  "tool_type": "visualization | insight",
+  "language": "en | zh"
 }
 ```
 
-## 出力
-最終的に'png'または'html'の形式でローカルに保存され、保存されたグラフのパスとグラフ内で発見されたデータインサイトを出力
+- `output_type`：`DataVisualization.execute()` のデフォルトは `"html"`（VChart 対話型ページ）です。静的画像を出力する場合は `"png"` を指定します（`src/chartVisualize.ts` 単体で `output_type` が省略された場合のフォールバックは `"png"`）。
+- `tool_type`：`"visualization"` は新規グラフ生成と最大 6 件の統計インサイト抽出（棒・折れ線・面・散布図・二軸グラフ対象）を行い、`"insight"` は選択したインサイト注釈を既存グラフへ反映します。
+- `language`：インサイトの出力言語（デフォルト `"en"`、または `"zh"`）。
 
-## VMind設定
+**出力ファイル**（`workspace/visualization/` 配下に保存）：
 
-### LLM
+- `<file_name>.html` または `<file_name>.png`：レンダリングされたグラフ
+- `<file_name>.json`：VChart Spec と VMind インサイト情報
+- `<file_name>.md`：抽出されたデータインサイトの Markdown 一覧（該当チャート種別のみ）
 
-VMind自体
+---
+
+## VMind とレンダリング設定
+
+- **LLM 設定**：`DataVisualization.invoke_vmind()` は `config.llm["default"]`（`base_url`、`model`、`api_key`）を使用して `${baseUrl}/chat/completions` を呼び出します。OpenAI 互換の Chat Completions エンドポイントを設定してください。
+- **サイズとテーマ**：VChart の `"light"` テーマ（`theme: "light"`）を使用します。HTML 出力はデフォルトで画面全体（`100%`）に広がり、PNG 出力は Puppeteer で Canvas をキャプチャして保存します。
+
+---
+
+## 使い方とデモスクリプト
+
+### `run_flow.py` での有効化
+
+`config/config.toml` の `[runflow]` で `use_data_analysis_agent = true` を有効にすると、`PlanningFlow` から `DataAnalysis` エージェントを利用できます。
+
+```toml
+[runflow]
+flow_type = "planning"
+use_data_analysis_agent = true
+```
+
+### デモスクリプトの実行
+
+`app/tool/chart_visualization/test/` には 2 つの動作確認用スクリプトが用意されています（WebScout リポジトリのルートから実行してください）。
+
+1. **チャート生成デモ**（地域別売上、ブランドシェア、売上推移、検索ワード人気度、EV 散布図、コンバージョン率、朝食比較、レーダーチャート、データフローの計 9 タスクを実行）：
+   ```bash
+   python -m app.tool.chart_visualization.test.chart_demo
+   ```
+
+2. **HTML データレポート生成デモ**（チーム別月次稼働時間を分析し、グラフ付きの HTML レポートを生成）：
+   ```bash
+   python -m app.tool.chart_visualization.test.report_demo
+   ```
+
+生成されたすべてのファイルは `workspace/visualization/` に出力されます。

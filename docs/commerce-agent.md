@@ -1,270 +1,304 @@
-# Commerce Browser Agent Architecture
+# Commerce Agent Guide & Architecture
 
-Updated: 2026-04-21
+English | [简体中文](commerce-agent.zh.md)
 
-The commerce browser flow is a dedicated OpenManus path for product research, public-web collection, and purchase-decision reports. It is not just a prompt wrapper around a general browser agent. The implementation separates product identity, source policy, evidence collection, coverage review, and final report synthesis into testable modules.
+The WebScout Commerce Agent (`run_commerce.py` + `app/flow/commerce.py` + `app/commerce/*`) is a dedicated product research, public-web collection, and purchase-decision report system built on top of the OpenManus runtime.
 
-The current goal is to collect prices, official baselines, retail reviews, professional/editorial open-web reviews, video reviews, and community feedback from public pages, public APIs, optional MCP tools, and search/browser fallback. The report must distinguish confirmed evidence from partial evidence and blocked or missing sources.
+Rather than wrapping a generic browser loop in a single prompt, it separates product identity extraction, brand/category source policy, 3-tier evidence collection, per-step contract verification, and structured report synthesis into independent, testable components.
 
-## Profiles
+---
 
-| Profile | Purpose | Best for | Status |
+## 1. Execution Profiles
+
+| Profile | CLI Flag | Purpose | Best For |
 | --- | --- | --- | --- |
-| `stable_public_web` | Narrow stable public-web demo | Repeatable demos and low-risk validation | Still intentionally narrow |
-| `product_compare_v2` | Policy-driven product comparison and sentiment report | Phones, laptops, tablets, audio, wearables, consoles | Main path |
+| `product_compare_v2` | `--execution-profile product_compare_v2` | Policy-driven multi-source comparison & review synthesis | **Main workflow**: phones, laptops, tablets, audio, wearables, consoles, and general consumer products |
+| `stable_public_web` | `--demo-profile stable_public_web` or `--execution-profile stable_public_web` | Deterministic 4-source public-web demo (Amazon, Best Buy, YouTube, Apple.com) | Quick smoke checks and repeatable iPhone 16 demo runs (uses a built-in prompt if `--prompt` is omitted) |
+| `default` | `--execution-profile default` (default when no profile is passed) | Heuristic fast-path or LLM-planned investigation (`PLANNER_SYSTEM_PROMPT`) | Ad-hoc CN/EN shopping queries (supports JD, Taobao, Tmall, Pinduoduo, Xiaohongshu, Bilibili, Weibo, Amazon, Best Buy, Reddit, YouTube) |
 
-`product_compare_v2` has grown from a phone-only flow into a generic product flow. It extracts brand, family, model, category, and variants, then chooses official sources, marketplaces, review sources, and filtering rules.
+---
 
-## Architecture
+## 2. CLI Reference (`run_commerce.py`)
+
+```bash
+python run_commerce.py [OPTIONS]
+```
+
+| Flag | Choices / Default | Description |
+| --- | --- | --- |
+| `--prompt TEXT` | Optional | Free-form product research request. Prompts interactively in the terminal if omitted (except under `stable_public_web`, which defaults to `DEFAULT_STABLE_PUBLIC_WEB_PROMPT`). |
+| `--execution-profile` | `default`, `stable_public_web`, `product_compare_v2` (`None`) | Explicit execution profile. Takes precedence over `--demo-profile` when both are provided. |
+| `--demo-profile` | `default`, `stable_public_web` (`default`) | Optional demo profile selector. |
+| `--browser-session-mode` | `auto`, `public_only`, `local_cdp` (`None`) | Overrides `[browser] session_mode` in `config/config.toml` via `config.set_browser_session_mode()`. |
+| `--timeout-seconds INT` | `900` | Overall `asyncio.wait_for` timeout (seconds) for `flow.execute(prompt)`. |
+
+### Example Commands
+
+```bash
+# 1. Repeatable public-web demo
+python run_commerce.py \
+  --demo-profile stable_public_web \
+  --browser-session-mode public_only
+
+# 2. Multi-marketplace phone comparison with retail, editorial, YouTube, and Reddit signals
+python run_commerce.py \
+  --execution-profile product_compare_v2 \
+  --browser-session-mode public_only \
+  --prompt "Compare iPhone 16 prices on Amazon, Best Buy, Walmart, Target, B&H, and Newegg; summarize public retail customer review signals, professional editorial reviews, plus YouTube and Reddit real-user feedback."
+
+# 3. Broad laptop family prompt (automatically narrows to a representative comparable model)
+python run_commerce.py \
+  --execution-profile product_compare_v2 \
+  --browser-session-mode public_only \
+  --timeout-seconds 600 \
+  --prompt "Compare current MacBook Pro prices on Amazon, Best Buy, Walmart, Target, B&H, and Newegg; summarize public retail customer review signals, professional editorial reviews, plus YouTube and Reddit real-user feedback; use public sources only and produce a detailed Chinese decision report with evidence, SKU caveats, price confidence, and buying recommendation."
+```
+
+---
+
+## 3. Configuration & Optional MCP Scripts
+
+### `config/config.toml`
+
+Copy `config/config.example.toml` to `config/config.toml`:
+
+- **`[llm]`**: Primary model used for planning (in `default` profile) and review synthesis (`REVIEW_HIGHLIGHT_SYNTHESIZER_SYSTEM_PROMPT`).
+- **`[llm.vision]`**: Optional multimodal model used by `GuiPlusGrounder` (`app/commerce/grounding.py`) when page text extraction is sparse or missing visible price signals.
+- **`[browser]`**:
+  - `headless`: `true` or `false` (default `false`).
+  - `session_mode`: `"auto"`, `"public_only"`, or `"local_cdp"`.
+  - `cdp_url` / `wss_url` / `chrome_instance_path`: Optional local Chrome connection settings for `auto` and `local_cdp` modes.
+  - `[browser.proxy]`: Optional `server`, `username`, `password`.
+- **`[search]`**: Primary `engine` (`"Google"`, `"DuckDuckGo"`, `"Baidu"`, `"Bing"`), `fallback_engines`, `retry_delay`, `max_retries`, `lang`, `country`.
+- **`[daytona]`**: Optional remote cloud sandbox settings; when present, `CommerceBrowserController` uses `SandboxBrowserTool` (`daytona_sandbox`) for public browsing.
+
+### `config/mcp.json` & Helper Scripts
+
+Copy `config/mcp.example.json` to `config/mcp.json` to enable optional MCP providers behind `CommerceMCPBridge`:
+
+1. **`commerce_public`** (`python -m app.mcp.commerce_public_server --transport stdio`)
+   - Built-in FastMCP server exposing 7 public commerce tools: `price_benchmark_search`, `marketplace_price_search`, `official_catalog_search`, `marketplace_customer_review_search`, `youtube_video_review_search`, `reddit_community_review_search`, and `editorial_web_review_search`.
+   - Note: On Windows, change `"command": "./.venv/bin/python"` in `config/mcp.json` to `".venv/Scripts/python.exe"`.
+
+2. **`playwright`** (`./scripts/start_playwright_mcp.sh`)
+   - Launches `npx -y -p node@20 -p @playwright/mcp@latest` in headless file-output mode (`--headless --no-sandbox --output-mode file`).
+   - Supported environment variables:
+     - `PLAYWRIGHT_MCP_OUTPUT_DIR`: Snapshot output directory (default `/tmp/openmanus_playwright_mcp`).
+     - `PLAYWRIGHT_MCP_EXECUTABLE_PATH`: Explicit Chromium binary path (auto-discovers local `ms-playwright` Chromium cache on Linux/macOS/Windows if unset).
+     - `PLAYWRIGHT_MCP_USER_DATA_DIR`: Persistent browser profile directory (defaults to a temporary `/tmp/openmanus_playwright_mcp_profile.XXXXXX` directory).
+
+3. **`brightdata`** (`./scripts/start_brightdata_mcp.sh`)
+   - Launches `npx -y -p node@20 -p @brightdata/mcp -c 'mcp'`.
+   - Guarded in `config/mcp.example.json` by `"required_env_any": ["BRIGHTDATA_API_TOKEN", "BRIGHT_DATA_API_TOKEN", "API_TOKEN"]`—if none of these variables is set in your shell, `MCPSettings.load_server_config()` skips `brightdata` cleanly at startup.
+   - Supported environment variables in `start_brightdata_mcp.sh`:
+     - `BRIGHTDATA_API_TOKEN` / `BRIGHT_DATA_API_TOKEN` / `API_TOKEN` (required when invoking the script directly).
+     - `BRIGHTDATA_PRO_MODE`: Exported as `PRO_MODE` (default `"true"`).
+     - `BRIGHTDATA_GROUPS`: Exported as `GROUPS` (default `"ecommerce,browser"`).
+
+4. **`price_search`** (`http://localhost:8000/sse`)
+   - Optional SSE MCP endpoint for custom local price services. Set `"disabled": true` in `config/mcp.json` if you do not run an SSE server on port 8000.
+
+---
+
+## 4. Architecture & Runtime Pipeline
 
 ```mermaid
 flowchart TB
-  U["User prompt / run_commerce.py"] --> F["CommerceDecisionFlow<br/>LangGraph orchestration"]
-  F --> P["Planner<br/>identity, source policy, task graph"]
-  P --> PL["CommercePlan<br/>tasks + comparison_subject"]
-  PL --> E["CommerceResearchExecutor<br/>collection and diagnostics"]
-  E --> D["Direct public collectors<br/>prices, official, retail reviews, editorial web, YouTube, Reddit"]
-  E --> M["CommerceMCPBridge<br/>optional MCP selection and normalization"]
-  E --> B["CommerceBrowserController<br/>public browser / session browser"]
-  D --> EV["EvidenceItem / PriceObservation / diagnostics"]
+  U["User Prompt / run_commerce.py"] --> F["CommerceDecisionFlow (LangGraph StateGraph)"]
+  F --> P["Planner Node: Identity, Policy, Representative Subject"]
+  P --> PL["CommercePlan: CommerceTask[] + StepContract"]
+  PL --> E["Executor Node: CommerceResearchExecutor.execute_task()"]
+  E --> D["Tier 1: Direct Public Collectors (Marketplaces, Official, Reviews, YouTube, Reddit)"]
+  E --> M["Tier 2: CommerceMCPBridge (Optional MCP Tool Ranking & Normalization)"]
+  E --> B["Tier 3: Search & Browser Fallback (CommerceBrowserController + GuiPlusGrounder)"]
+  D --> EV["EvidenceItem[] + task diagnostics"]
   M --> EV
   B --> EV
-  EV --> R["Reviewer<br/>coverage check and one follow-up round"]
-  R --> O["DecisionReport.to_markdown()<br/>final report"]
+  EV --> R["Reviewer Node: StepEvaluation + 1 Follow-up Round"]
+  R --> O["DecisionReport.to_markdown() -> stdout Markdown + logs/commerce_*.log"]
 ```
 
-Core boundaries:
-
-- `Planner` turns the request into a structured research plan. It does not scrape pages.
-- `Executor` runs direct collectors, MCP tools, and browser fallback while recording diagnostics.
-- `Reviewer` checks evidence coverage and may request one bounded follow-up round.
-- `DecisionReport` owns the final delivery shape and keeps failed sources visible.
-
-## Sequence
+### Runtime Sequence
 
 ```mermaid
 sequenceDiagram
   participant User
   participant Flow as CommerceDecisionFlow
-  participant Planner
-  participant Exec as Executor
-  participant Direct as Public Collectors
-  participant MCP as MCP Bridge
-  participant Browser as Browser Controller
-  participant Reviewer
+  participant Planner as _planner_node
+  participant Exec as CommerceResearchExecutor
+  participant Direct as commerce_public_server
+  participant MCP as CommerceMCPBridge
+  participant Browser as CommerceBrowserController
+  participant Reviewer as _reviewer_node
 
-  User->>Flow: prompt / profile / browser mode
-  Flow->>Planner: _create_plan()
+  User->>Flow: execute(prompt)
+  Flow->>Planner: _create_plan(request_text)
   Planner-->>Flow: CommercePlan(tasks, comparison_subject)
-  loop each CommerceTask
+  loop For each pending CommerceTask
     Flow->>Exec: execute_task(task)
-    Exec->>Direct: direct product_compare_v2 collector
-    Direct-->>Exec: structured observations or diagnostics
-    Exec->>MCP: collect(task)
-    MCP-->>Exec: normalized evidence or diagnostics
-    Exec->>Browser: search/browser fallback when allowed
-    Browser-->>Exec: page evidence or blocked reason
-    Exec-->>Flow: EvidenceItem[]
+    Exec->>Direct: Tier 1 direct collector
+    Direct-->>Exec: observations
+    opt Insufficient clean evidence & MCP enabled for role
+      Exec->>MCP: Tier 2 collect(task)
+      MCP-->>Exec: normalized observations + diagnostics
+    end
+    opt Still needs evidence
+      Exec->>Browser: Tier 3 direct URL / WebSearch + browser / HTML fallback
+      Browser-->>Exec: extracted text / VisualPriceSignal / blocked_reason
+    end
+    Exec-->>Flow: EvidenceItem[] + last_task_diagnostics
+    Flow->>Flow: _evaluate_step_contract() -> StepEvaluation + failure_summary
   end
-  Flow->>Reviewer: coverage + diagnostics
-  alt missing coverage and follow-up budget remains
-    Reviewer-->>Flow: follow-up tasks
-  else enough coverage or budget exhausted
-    Reviewer-->>Flow: DecisionReport
+  Flow->>Reviewer: Check coverage & suppressed failure signatures
+  alt Missing sources & followup_rounds < 1
+    Reviewer-->>Flow: Enqueue non-suppressed follow-up tasks
+  else Coverage satisfied or follow-up budget spent
+    Reviewer-->>Flow: _build_report() -> DecisionReport.to_markdown()
   end
 ```
 
-## Main Modules
-
-| Module | Responsibility |
-| --- | --- |
-| `run_commerce.py` | CLI entry point for profile, browser mode, prompt, and report output |
-| `app/flow/commerce.py` | LangGraph flow with planner, executor, reviewer, follow-ups, and report synthesis |
-| `app/commerce/policy.py` | Product identity, brand/category source policies, configuration-sensitive family rules |
-| `app/commerce/models.py` | Pydantic contracts for plans, tasks, evidence, prices, diagnostics, and reports |
-| `app/commerce/executor.py` | Runs each task through direct collectors, MCP, and search/browser fallback |
-| `app/mcp/commerce_public_server.py` | Built-in public collectors for marketplaces, official sources, retail reviews, editorial web reviews, YouTube, and Reddit |
-| `app/commerce/mcp_bridge.py` | Optional MCP tool discovery, scoring, invocation, normalization, and diagnostics |
-| `app/commerce/browser.py` | Runtime browser selection: `public_only`, `auto`, `local_cdp` |
-| `app/commerce/grounding.py` | DOM/vision grounding helper for brittle pages, not a login or CAPTCHA bypass |
-| `tests/commerce/*` | Unit and integration coverage for flow, executor, MCP bridge, browser, and models |
-
-## Data Model
+### Data Model (`app/commerce/models.py`)
 
 ```mermaid
 classDiagram
   class ProductIdentity {
-    brand
-    family
-    model_name
-    category
-    variant_tokens
+    +str brand
+    +str family
+    +str category
+    +str model_name
+    +List~str~ variant_tokens
+    +Dict~str,str~ configuration
   }
-  class CommercePlan {
-    profile
-    identity
-    comparison_subject
-    source_policy
-    tasks
+  class StepContract {
+    +str step_goal
+    +List~str~ allowed_action_types
+    +str target_object
+    +List~str~ success_criteria
+    +List~str~ fallback_policy
+    +int retry_limit
   }
   class CommerceTask {
-    task_type
-    source
-    query
-    allowed_domains
-    expected_output
+    +TaskCategory category
+    +str platform
+    +str query
+    +str goal
+    +int max_results
+    +bool require_browser
+    +SourceRole source_role
+    +TaskStrategy strategy
+    +List~str~ preferred_mcp_tools
+    +StepContract step_contract
+  }
+  class CommercePlan {
+    +str product_name
+    +str normalized_query
+    +str comparison_subject
+    +str policy_id
+    +ProductIdentity product_identity
+    +List~str~ shopping_platforms
+    +List~str~ community_platforms
+    +List~str~ official_sources
+    +List~str~ unsupported_sources
+    +List~CommerceTask~ tasks
   }
   class EvidenceItem {
-    source
-    task_type
-    url
-    title
-    price
-    confidence
-    diagnostics
+    +TaskCategory category
+    +str platform
+    +str title
+    +str url
+    +str snippet
+    +str extracted_text
+    +PriceObservation price
+    +str sentiment
+    +float credibility
+    +str source_type
+    +SourceRole source_role
+    +VisualGroundingHint visual_hint
+    +Dict metadata
   }
   class DecisionReport {
-    status
-    confirmed_facts
-    price_summary
-    review_highlights
-    unsupported_sources
-    recommendation
+    +str product_name
+    +DecisionStatus status
+    +str executive_summary
+    +str recommended_choice
+    +List~str~ confirmed_facts
+    +List~str~ rumors_or_uncertain
+    +List~PriceObservation~ price_highlights
+    +List~PriceObservation~ marketplace_quotes
+    +PriceObservation official_baseline
+    +List~str~ review_highlights
+    +List~str~ evidence_matrix
+    +List~str~ sample_coverage
+    +List~str~ price_analysis
+    +List~str~ review_deep_dive
+    +List~str~ evidence_samples
+    +List~str~ unsupported_sources
+    +List~str~ source_notes
+    +List~str~ next_actions
+    +CommerceExecutionEnvironment environment
   }
   ProductIdentity --> CommercePlan
   CommercePlan --> CommerceTask
+  CommerceTask --> StepContract
   CommerceTask --> EvidenceItem
   EvidenceItem --> DecisionReport
 ```
 
-Important fields:
+### Representative Model Narrowing (`product_compare_v2`)
 
-- `CommercePlan.comparison_subject`: representative comparable model for underspecified configuration-sensitive products.
-- `EvidenceItem.diagnostics`: login wall, anti-bot block, no match, low confidence, degraded sample, and similar notes.
-- `DecisionReport.status`: final state, one of `complete`, `partial`, or `incomplete`.
+When a prompt names a configuration-sensitive product family without specifying size, chip, memory, or storage, `_series_comparison_subject()` selects a single representative baseline so marketplace quotes remain comparable:
 
-## `product_compare_v2` Planning
-
-V2 planning follows this shape:
-
-1. Extract `ProductIdentity` from the prompt.
-2. Resolve brand/category source policy.
-3. Detect configuration-sensitive families such as MacBook Pro, MacBook Air, laptops, and tablets.
-4. If the user only names a broad family, choose a representative `comparison_subject`.
-5. Create separate tasks for prices, official baseline, retail reviews, professional/editorial reviews, video reviews, and community feedback.
-6. Attach source, query, allowed domains, and expected output to each task.
-
-Current representative model examples:
-
-| User input | Internal representative model | Report behavior |
+| Broad Prompt Input | Internal `comparison_subject` | Report Behavior |
 | --- | --- | --- |
-| `MacBook Pro` | `Apple 14-inch MacBook Pro M5` | Explicitly labeled as a representative model to avoid mixing sizes/chips |
-| `MacBook Air` | `Apple 13-inch MacBook Air M4` | Explicitly labeled as a representative model |
+| `MacBook Pro` | `Apple 14-inch MacBook Pro M5` | Labeled as representative baseline; unaligned sizes/chips are marked `degraded_marketplace` |
+| `MacBook Air` | `Apple 13-inch MacBook Air M4` | Labeled as representative baseline |
 
-If the prompt already names size, chip, memory, storage, or color, V2 tries to use the user's requested configuration.
+If you want a specific SKU (for example `16-inch MacBook Pro M4 Pro 24GB 512GB`), include those parameters directly in `--prompt`.
 
-## Collection Pipeline
+---
 
-```mermaid
-flowchart LR
-  T["CommerceTask"] --> D["Direct collector"]
-  D -->|hit| N["Normalize evidence"]
-  D -->|empty/blocked| M["MCP bridge"]
-  M -->|hit| N
-  M -->|empty/blocked| S["Search + browser fallback"]
-  S --> N
-  N --> Q["Quality filters<br/>model, variant, accessories, renewed, financing, confidence"]
-  Q --> E["EvidenceItem[] + diagnostics"]
-```
+## 5. Output Structure & Artifacts
 
-### Direct Collectors
+1. **Standard Output (`stdout`)**: `run_commerce.py` suppresses noisy third-party/subprocess output during execution and prints the final Markdown report generated by `DecisionReport.to_markdown()`. Sections include:
+   - `# <Product> 决策报告`
+   - `## 执行摘要` (Executive summary)
+   - `## 完成状态` (`已完成` / `部分完成` / `未完成`)
+   - `## 推荐结论` (Buying recommendation & SKU warnings)
+   - `## 已确认信息` & `## 传闻与不确定项`
+   - `## 价格观察` & `## 官方基准`
+   - `## 证据矩阵` (Markdown table across planned sources when populated)
+   - `## 口碑主题` (LLM-synthesized or rule-derived pros, cons, upgrade value, user fit)
+   - `## 样本覆盖`, `## 价格与配置分析`, `## 口碑深挖`, `## 样本摘录`
+   - `## 不支持来源`, `## 来源备注`, `## 后续建议`, `## 运行环境`
+   - Save directly to a file when needed: `python run_commerce.py ... > report.md`.
+2. **Runtime Logs**: Detailed step logs, tool calls, diagnostics, and token counts are written to `logs/commerce_<YYYYMMDDHHMMSS>.log`.
+3. **Browser & MCP Cache Directories**:
+   - Auto-discovered local Chromium session profile (`auto` mode): `~/.cache/openmanus/commerce-browser-profile`
+   - Playwright MCP file snapshots (when `playwright` MCP is enabled): `/tmp/openmanus_playwright_mcp`
 
-Direct collectors are first priority for `product_compare_v2` because they return structured fields and reduce the risk of guessing prices from page text. Current coverage includes:
+---
 
-- Marketplace prices from public Amazon, Best Buy, Walmart, Target, B&H, Newegg, and similar results when accessible.
-- Official baselines from brand stores such as Apple, Google, Samsung, and Microsoft.
-- Retail review snippets from Amazon, Best Buy, Walmart, Target, B&H, and Newegg when public pages expose them.
-- Professional/editorial open-web review results from sources such as The Verge, Wired, CNET, PCMag, Tom's Guide, TechRadar, Engadget, GSMArena, Notebookcheck, RTINGS, MacRumors, 9to5Mac, Ars Technica, Consumer Reports, Wirecutter/NYTimes, DXOMARK, Trusted Reviews, Expert Reviews, and Reviewed when public search exposes matching pages.
-- YouTube public search results and metadata.
-- Reddit public search/JSON paths.
+## 6. Browser Session Modes
 
-### MCP Bridge
-
-The MCP bridge plugs in stronger structured tools. It selects tools by task type, source, priority hints, and schema, then normalizes returned data into `EvidenceItem`.
-
-MCP improves structure and coverage. It does not bypass login walls, CAPTCHAs, or anti-bot controls.
-
-### Browser Fallback
-
-If direct collectors and MCP do not produce enough evidence, the executor uses search plus browser fallback. The browser layer can extract public pages and use DOM/vision grounding for brittle layouts.
-
-When a page returns login, CAPTCHA, 403, 429, bot detection, or another access block, the system records that as diagnostics instead of fabricating evidence.
-
-## Browser Modes
-
-| Mode | Behavior | Best for |
+| Mode | Behavior | When to Use |
 | --- | --- | --- |
-| `public_only` | Use only public browser paths | Reproducible public-web validation |
-| `auto` | Start public, then reuse local Chrome/CDP when available and useful | User-approved session-backed runs |
-| `local_cdp` | Require local Chrome/CDP | Session-browser debugging |
+| `public_only` | Uses public search/fetch/browser paths only; skips `_build_session_runtime()`. | Reproducible CI/CLI runs with zero dependence on local logged-in browsers. |
+| `auto` | Uses public paths by default; switches session-preferred platforms (`Amazon`, `Best Buy`, `Walmart`, `JD`, `Taobao`, `Tmall`, `Pinduoduo`, `Xiaohongshu`, `Weibo`) or blocked public pages to a configured CDP/Chrome session or auto-discovered local Chromium binary. | Local desktop runs where reusing a browser profile reduces country-selector or guest walls. |
+| `local_cdp` | Requires `browser.cdp_url`, `browser.wss_url`, or `browser.chrome_instance_path` in `config/config.toml`. | Debugging against an explicitly launched Chrome `--remote-debugging-port=9222` instance. |
 
-These modes do not crack CAPTCHAs or break through login requirements. Amazon, Best Buy, Google Store, and similar sites can still be marked as blocked in `public_only`.
+WebScout never solves or bypasses CAPTCHAs, login prompts, or anti-bot verification pages.
 
-## Report Synthesis
+---
 
-`DecisionReport.to_markdown()` emits the final report. V2 reports try to include:
+## 7. Troubleshooting
 
-- Executive summary and buying recommendation.
-- Representative model or user-specified configuration.
-- Price table with seller, model/configuration, price, confidence, and comparability caveats.
-- Official baseline for discount/premium checks.
-- Retail review, professional/editorial web, YouTube, and Reddit sentiment summaries.
-- Source and sample counts.
-- Blocked sources, degraded samples, and next-step recommendations.
-
-Report quality is not measured by pretending every site succeeded. It is measured by clear separation between reliable evidence, missing evidence, and non-comparable prices.
-
-## Recommended Commands
-
-Stable demo:
-
-```bash
-python run_commerce.py --demo-profile stable_public_web --browser-session-mode public_only
-```
-
-V2 phone example:
-
-```bash
-python run_commerce.py \
-  --execution-profile product_compare_v2 \
-  --browser-session-mode public_only \
-  --prompt "Compare iPhone 16 prices on Amazon, Best Buy, Walmart, Target, B&H, and Newegg; summarize public retail customer review signals, professional editorial reviews, plus YouTube and Reddit real-user feedback."
-```
-
-V2 laptop representative-model example:
-
-```bash
-python run_commerce.py \
-  --execution-profile product_compare_v2 \
-  --browser-session-mode public_only \
-  --prompt "Compare current MacBook Pro prices on Amazon, Best Buy, Walmart, Target, B&H, and Newegg; summarize public retail customer review signals, professional editorial reviews, plus YouTube and Reddit real-user feedback; use public sources only and produce a detailed Chinese decision report with evidence, SKU caveats, price confidence, and buying recommendation."
-```
-
-If a prompt is underspecified, V2 first narrows to one representative model. If the user wants multiple SKU comparisons, the prompt should list the target size, chip, memory, storage, and color.
-
-## Known Limits
-
-- Public pages are not stable APIs. Search results, page layouts, rate limits, and login walls can change at any time.
-- Amazon review pages, Best Buy, Google Store, and similar public paths can still trigger login, CAPTCHA, or anti-bot behavior in `public_only`.
-- Reddit public endpoints can return `HTTP 429`.
-- Broad family names such as `MacBook Pro` or `Ninja Creami` require representative-model selection or explicit cross-SKU caveats.
-- Price confidence depends heavily on model matching; memory, storage, color, renewed/used condition, financing, and bundles can make prices non-comparable.
-- Further quality improvements for non-phone categories require more category-specific collectors and model normalization rules.
-
-## Next Improvements
-
-1. Add dedicated parsers for laptops, kitchen appliances, cameras, and game consoles.
-2. Strengthen structured price and review extraction for Walmart, Target, B&H, and Newegg.
-3. Split price confidence into model match, freshness, source reliability, and configuration comparability.
-4. Add a multi-SKU mode for broad prompts, for example separate runs for `MacBook Pro 14-inch M5`, `14-inch M5 Pro`, and `16-inch M5 Pro`.
-5. Improve report templates so Markdown output looks closer to a formal research report with cleaner tables, footnotes, and risk callouts.
+- **`ValueError: browser.session_mode=local_cdp requires browser.cdp_url, browser.wss_url, or browser.chrome_instance_path.`**
+  - Switch to `--browser-session-mode public_only` (or `auto`), or set `cdp_url = "http://127.0.0.1:9222"` under `[browser]` in `config/config.toml` after starting Chrome with `--remote-debugging-port=9222`.
+- **Report status is `部分完成` (`partial`) or `未完成` (`incomplete`) in `public_only` mode**
+  - Check `## 来源备注` and `## 传闻与不确定项` in the generated report. Sites like Amazon, Best Buy, Google Store, or Reddit (`HTTP 429`) frequently serve login gates, country selectors, or bot checks to unauthenticated traffic. WebScout intentionally marks those sources as missing/blocked instead of guessing prices.
+- **`Failed to connect MCP server commerce_public` on Windows**
+  - `config/mcp.example.json` uses `./.venv/bin/python` (POSIX path). Update `"command"` in `config/mcp.json` to `".venv/Scripts/python.exe"`, or remove `commerce_public` from `config/mcp.json` (`product_compare_v2` already calls its collectors directly in-process).
+- **`Failed to connect MCP server price_search` (`http://localhost:8000/sse`)**
+  - `price_search` in `config/mcp.example.json` expects a running local SSE server. Add `"disabled": true` to the `price_search` entry in `config/mcp.json` if you are not running one; `CommerceMCPBridge` logs a warning and continues either way.
+- **`Commerce flow timed out after 900 seconds`**
+  - Increase `--timeout-seconds` (e.g. `--timeout-seconds 1200`), narrow the number of marketplaces in `--prompt`, or check `logs/commerce_<timestamp>.log` to see whether an LLM endpoint or external search engine is stalling.

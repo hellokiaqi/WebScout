@@ -1,128 +1,133 @@
-# 차트 시각화 도구
+# 차트 시각화 도구 (Chart Visualization Tool)
 
-차트 시각화 도구는 Python을 통해 데이터 처리 코드를 생성하고, 최종적으로 [@visactor/vmind](https://github.com/VisActor/VMind)를 호출하여 차트 사양을 얻습니다. 차트 렌더링은 [@visactor/vchart](https://github.com/VisActor/VChart)를 사용하여 구현됩니다.
+[English](README.md) | [简体中文](README_zh.md) | [日本語](README_ja.md) | 한국어
 
-## 설치 (Mac / Linux)
+`app/tool/chart_visualization`은 WebScout의 데이터 분석 에이전트 `DataAnalysis`(`app/agent/data_analysis.py`)에서 사용하는 차트 생성 도구 모음입니다. Python(`pandas`)으로 데이터 전처리와 메타데이터 생성을 수행한 뒤, TypeScript 스크립트(`src/chartVisualize.ts`)에서 [@visactor/vmind](https://github.com/VisActor/VMind)를 호출해 차트 사양(Spec)과 데이터 인사이트를 생성하고, [@visactor/vchart](https://github.com/VisActor/VChart) 기반 대화형 HTML 또는 `puppeteer` 기반 PNG 이미지로 렌더링합니다.
 
-1. Node.js 18 이상 설치
+---
+
+## 사전 요구 사항 및 설치
+
+1. **Python 환경**: WebScout 가상 환경을 활성화하고 루트 의존성을 설치한 뒤(`uv pip install -r requirements.txt`, 최소 환경인 경우 `uv pip install pandas` 추가 실행), `config/config.toml`의 `[llm]` 항목을 설정합니다.
+2. **Node.js >= 18**: `npx ts-node src/chartVisualize.ts` 및 `puppeteer` 실행에 필요합니다.
+
+### macOS / Linux
 
 ```bash
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
-# nvm 활성화, 예를 들어 Bash
-source ~/.bashrc
-# 그런 다음 최신 안정 버전의 Node 설치
-nvm install node
-# 사용 활성화, 예를 들어 최신 안정 버전이 22인 경우 use 22
+# Node.js >= 18 설치 및 활성화 (nvm 예시)
+nvm install 22
 nvm use 22
-```
 
-2. 의존성 설치
-
-```bash
-# 현재 저장소에서 해당 위치로 이동
+# 차트 시각화 패키지 의존성 설치
 cd app/tool/chart_visualization
 npm install
 ```
 
-## 설치 (Windows)
-1. nvm-windows 설치
-
-    [공식 GitHub 페이지](https://github.com/coreybutler/nvm-windows?tab=readme-ov-file#readme)에서 최신 버전의 `nvm-setup.exe`를 다운로드하고 설치합니다.
-
-2. nvm을 사용하여 Node.js 설치
+### Windows (PowerShell)
 
 ```powershell
-# 그런 다음 최신 안정 버전의 Node 설치
-nvm install node
-# 사용 활성화, 예를 들어 최신 안정 버전이 22인 경우 use 22
+# Node.js >= 18 설치 및 활성화 (nvm-windows 또는 공식 설치 프로그램)
+nvm install 22
 nvm use 22
-```
 
-3. 의존성 설치
-
-```bash
-# 현재 저장소에서 해당 위치로 이동
+# 차트 시각화 패키지 의존성 설치
 cd app/tool/chart_visualization
 npm install
 ```
 
-## 도구
-### python_execute
+---
 
-Python 코드를 사용하여 데이터 분석의 필요한 부분(데이터 시각화 제외)을 실행합니다. 여기에는 데이터 처리, 데이터 요약, 보고서 생성 및 일부 일반적인 Python 스크립트 코드가 포함됩니다.
+## 제공 도구
 
-#### 입력
-```typescript
+`DataAnalysis` 에이전트는 다음 세 가지 도구(및 `terminate`)를 조합해 작업을 수행합니다.
+
+### 1. `python_execute` (`python_execute.py` -> `NormalPythonExecute`)
+
+데이터 정제, 기초 통계 계산, 이상치 탐지, 텍스트/HTML 분석 보고서 생성을 위한 Python 코드를 실행합니다(기본 타임아웃 `5`초).
+
+**입력 스키마**:
+
+```json
 {
-  // 코드 유형: 데이터 처리/데이터 보고서/기타 일반 작업
-  code_type: "process" | "report" | "others"
-  // 최종 실행 코드
-  code: string;
+  "code_type": "process | report | others",
+  "code": "print()로 분석 결과를 출력하는 Python 코드"
 }
 ```
 
-#### 출력
-Python 실행 결과, 중간 파일 저장 및 출력 결과 포함.
+### 2. `visualization_preparation` (`chart_prepare.py` -> `VisualizationPrepare`)
 
-### visualization_preparation
+Python 코드를 실행하여 `data_visualization` 도구가 읽을 CSV 파일과 JSON 설정 파일을 준비합니다.
 
-데이터 시각화를 위한 사전 도구로 두 가지 목적이 있습니다.
+- **`code_type = "visualization"` (데이터 -> 차트)**: 원본 데이터를 정제해 `.csv`로 저장하고 `[{"csvFilePath": "path/to/data.csv", "chartTitle": "차트 제목 또는 설명"}]` 형식의 UTF-8 JSON 파일을 생성합니다.
+- **`code_type = "insight"` (차트 + 인사이트 -> 차트 주석)**: 생성된 차트 인사이트 번호(1부터 시작)를 선택해 `[{"chartPath": "path/to/chart.html", "insights_id": [1, 2]}]` 형식의 JSON 파일을 생성합니다.
 
-#### 데이터 -> 차트
-분석에 필요한 데이터(.csv)와 해당 시각화 설명을 데이터에서 추출하여 최종적으로 JSON 구성 파일을 출력합니다.
+**입력 스키마**:
 
-#### 차트 + 인사이트 -> 차트
-기존 차트와 해당 데이터 인사이트를 선택하고, 데이터 주석 형태로 차트에 추가할 데이터 인사이트를 선택하여 최종적으로 JSON 구성 파일을 생성합니다.
-
-#### 입력
-```typescript
+```json
 {
-  // 코드 유형: 데이터 시각화 또는 데이터 인사이트 추가
-  code_type: "visualization" | "insight"
-  // 최종 JSON 파일을 생성하는 데 사용되는 Python 코드
-  code: string;
+  "code_type": "visualization | insight",
+  "code": "CSV 및 JSON 메타데이터 파일을 저장하고 경로를 print하는 Python 코드"
 }
 ```
 
-#### 출력
-`data_visualization tool`에 사용되는 데이터 시각화를 위한 구성 파일.
+### 3. `data_visualization` (`data_visualization.py` -> `DataVisualization`)
 
-## data_visualization
+`visualization_preparation`이 생성한 JSON 설정 파일을 읽고, `pandas`로 CSV 데이터를 변환한 뒤 `npx ts-node src/chartVisualize.ts`를 호출합니다.
 
-`visualization_preparation`의 내용을 기반으로 특정 데이터 시각화를 생성합니다.
+**입력 파라미터 (`execute`)**:
 
-### 입력
-```typescript
+```json
 {
-  // 구성 파일 경로
-  json_path: string;
-  // 현재 목적, 데이터 시각화 또는 인사이트 주석 추가
-  tool_type: "visualization" | "insight";
-  // 최종 제품 png 또는 html; html은 vchart 렌더링 및 상호작용 지원
-  output_type: 'png' | 'html'
-  // 언어, 현재 중국어 및 영어 지원
-  language: "zh" | "en"
+  "json_path": "workspace/chart_meta.json",
+  "output_type": "html | png",
+  "tool_type": "visualization | insight",
+  "language": "en | zh"
 }
 ```
 
-## VMind 구성
+- `output_type`: `DataVisualization.execute()`의 기본값은 `"html"`(대화형 VChart 페이지)이며, 정적 이미지가 필요할 때 `"png"`를 지정합니다(`src/chartVisualize.ts`에 `output_type`이 전달되지 않은 경우의 내부 기본값만 `"png"`입니다).
+- `tool_type`: `"visualization"`은 차트 생성 및 최대 6개의 통계 인사이트 추출(막대, 선, 영역, 산점도, 이중축 차트 지원)을 수행하며, `"insight"`는 선택한 인사이트 주석을 기존 차트에 반영합니다.
+- `language`: 인사이트 텍스트 언어(기본값 `"en"`, 또는 `"zh"`).
 
-### LLM
+**출력 파일** (`workspace/visualization/` 디렉터리에 저장):
 
-VMind는 지능형 차트 생성을 위해 LLM 호출이 필요합니다. 기본적으로 `config.llm["default"]` 구성을 사용합니다.
+- `<file_name>.html` 또는 `<file_name>.png`: 렌더링된 차트 파일
+- `<file_name>.json`: VChart Spec 및 VMind 인사이트 데이터
+- `<file_name>.md`: 추출된 데이터 인사이트 Markdown 문서(해당 차트 유형인 경우)
 
-### 생성 설정
+---
 
-주요 구성에는 차트 크기, 테마 및 생성 방법이 포함됩니다.
-### 생성 방법
-기본값: png. 현재 LLM이 컨텍스트에 따라 `output_type`을 자동으로 선택하는 것을 지원합니다.
+## VMind 및 렌더링 설정
 
-### 크기
-기본 크기는 지정되지 않았습니다. HTML 출력의 경우 차트는 기본적으로 전체 페이지를 채웁니다. PNG 출력의 경우 기본값은 `1000*1000`입니다.
+- **LLM 설정**: `DataVisualization.invoke_vmind()`는 `config.llm["default"]`(`base_url`, `model`, `api_key`)를 사용해 `${baseUrl}/chat/completions`를 호출합니다. OpenAI 호환 Chat Completions 엔드포인트를 설정하세요.
+- **크기 및 테마**: 기본 테마는 VChart `"light"`(`theme: "light"`)입니다. HTML 출력은 기본적으로 전체 화면(`100%`)을 채우며, PNG 출력은 Puppeteer를 통해 캔버스를 이미지로 저장합니다.
 
-### 테마
-기본 테마: `'light'`. VChart는 여러 테마를 지원합니다. [테마](https://www.visactor.io/vchart/guide/tutorial_docs/Theme/Theme_Extension)를 참조하세요.
+---
 
-## 테스트
+## 사용 방법 및 데모 실행
 
-현재, 서로 다른 난이도의
+### `run_flow.py`에서 활성화
+
+`config/config.toml`의 `[runflow]`에서 `use_data_analysis_agent = true`로 설정하면 `PlanningFlow`에서 `DataAnalysis` 에이전트를 함께 사용할 수 있습니다.
+
+```toml
+[runflow]
+flow_type = "planning"
+use_data_analysis_agent = true
+```
+
+### 데모 스크립트 실행
+
+`app/tool/chart_visualization/test/` 디렉터리에는 바로 실행할 수 있는 **2개**의 데모 스크립트가 포함되어 있습니다(WebScout 저장소 루트에서 실행하세요).
+
+1. **다중 차트 생성 데모** (지역별 판매량, 브랜드 점유율, 매출 추이, 검색어 인기도, 전기차 산점도, 전환율 퍼널, 아침 식사 비교, 육각형 레이더, 데이터 흐름 등 9개 차트 시나리오 실행):
+   ```bash
+   python -m app.tool.chart_visualization.test.chart_demo
+   ```
+
+2. **HTML 그래픽 데이터 보고서 데모** (팀별 월간 근무 시간 데이터를 분석하여 차트가 포함된 HTML 보고서 생성):
+   ```bash
+   python -m app.tool.chart_visualization.test.report_demo
+   ```
+
+실행 결과물은 모두 `workspace/visualization/` 디렉터리에 저장됩니다.

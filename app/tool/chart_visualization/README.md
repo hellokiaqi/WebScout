@@ -1,146 +1,135 @@
-
-
 # Chart Visualization Tool
 
-The chart visualization tool generates data processing code through Python and ultimately invokes [@visactor/vmind](https://github.com/VisActor/VMind) to obtain chart specifications. Chart rendering is implemented using [@visactor/vchart](https://github.com/VisActor/VChart).
+English | [简体中文](README_zh.md) | [日本語](README_ja.md) | [한국어](README_ko.md)
 
-## Installation (Mac / Linux)
+`app/tool/chart_visualization` powers WebScout's `DataAnalysis` agent (`app/agent/data_analysis.py`). It combines Python (`pandas`) data preparation with TypeScript chart generation (`src/chartVisualize.ts`), using [@visactor/vmind](https://github.com/VisActor/VMind) to generate chart specifications and statistical insights, [@visactor/vchart](https://github.com/VisActor/VChart) for interactive HTML rendering, and `puppeteer` for headless PNG export.
 
-1. Install node >= 18
+---
+
+## Prerequisites & Installation
+
+1. **Python dependencies**: Ensure the WebScout virtual environment is active (`uv pip install -r requirements.txt`; `pandas` is installed automatically via `datasets`, or run `uv pip install pandas` if using a minimal environment) and `config/config.toml` has valid `[llm]` credentials.
+2. **Node.js >= 18**: Required to execute `npx ts-node src/chartVisualize.ts` and `puppeteer`.
+
+### macOS / Linux
 
 ```bash
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
-# Activate nvm, for example in Bash
-source ~/.bashrc
-# Then install the latest stable release of Node
-nvm install node
-# Activate usage, for example if the latest stable release is 22, then use 22
+# Install Node.js >= 18 (using nvm or your system package manager)
+nvm install 22
 nvm use 22
-```
 
-2. Install dependencies
-
-```bash
-# Navigate to the appropriate location in the current repository
+# Install Node dependencies for chart visualization
 cd app/tool/chart_visualization
 npm install
 ```
 
-## Installation (Windows)
-1. Install nvm-windows
-
-    Download the latest version `nvm-setup.exe` from the [official GitHub page](https://github.com/coreybutler/nvm-windows?tab=readme-ov-file#readme) and install it.
-
-2. Use nvm to install node
+### Windows (PowerShell)
 
 ```powershell
-# Then install the latest stable release of Node
-nvm install node
-# Activate usage, for example if the latest stable release is 22, then use 22
+# Install Node.js >= 18 (e.g., via nvm-windows or nodejs.org)
+nvm install 22
 nvm use 22
-```
 
-3. Install dependencies
-
-```bash
-# Navigate to the appropriate location in the current repository
+# Install Node dependencies for chart visualization
 cd app/tool/chart_visualization
 npm install
 ```
 
-## Tool
-### python_execute
+---
 
-Execute the necessary parts of data analysis (excluding data visualization) using Python code, including data processing, data summary, report generation, and some general Python script code.
+## Included Tools
 
-#### Input
-```typescript
+The `DataAnalysis` agent registers three tools from this package (plus `terminate`):
+
+### 1. `python_execute` (`NormalPythonExecute` in `python_execute.py`)
+
+Executes Python code (`timeout = 5` seconds by default) for data cleaning, statistical summaries, outlier checks, and Markdown/HTML report generation inside `workspace/`.
+
+**Input Schema**:
+
+```json
 {
-  // Code type: data processing/data report/other general tasks
-  code_type: "process" | "report" | "others"
-  // Final execution code
-  code: string;
+  "code_type": "process | report | others",
+  "code": "Python source code using print() to surface results"
 }
 ```
 
-#### Output
-Python execution results, including the saving of intermediate files and print output results.
+### 2. `visualization_preparation` (`VisualizationPrepare` in `chart_prepare.py`)
 
-### visualization_preparation
+Runs Python code to prepare clean CSV datasets and JSON metadata consumed by `data_visualization`:
 
-A pre-tool for data visualization with two purposes,
+- **`code_type = "visualization"` (Data -> Chart)**: Cleans raw data into `.csv` files and writes a UTF-8 JSON file containing `[{"csvFilePath": "path/to/data.csv", "chartTitle": "Concise chart description"}]`.
+- **`code_type = "insight"` (Chart + Insight -> Chart)**: Selects 1-based insight IDs from previously generated chart insights and writes `[{"chartPath": "path/to/chart.html", "insights_id": [1, 2]}]`.
 
-#### Data -> Chart
-Used to extract the data needed for analysis (.csv) and the corresponding visualization description from the data, ultimately outputting a JSON configuration file.
+**Input Schema**:
 
-#### Chart + Insight -> Chart
-Select existing charts and corresponding data insights, choose data insights to add to the chart in the form of data annotations, and finally generate a JSON configuration file.
-
-#### Input
-```typescript
+```json
 {
-  // Code type: data visualization or data insight addition
-  code_type: "visualization" | "insight"
-  // Python code used to produce the final JSON file
-  code: string;
+  "code_type": "visualization | insight",
+  "code": "Python script that writes the JSON metadata file and prints its path"
 }
 ```
 
-#### Output
-A configuration file for data visualization, used for the `data_visualization tool`.
+### 3. `data_visualization` (`DataVisualization` in `data_visualization.py`)
 
-## data_visualization
+Reads the JSON metadata file from `visualization_preparation`, loads CSV records with `pandas`, and invokes `npx ts-node src/chartVisualize.ts` over `stdin`/`stdout`.
 
-Generate specific data visualizations based on the content of `visualization_preparation`.
+**Input Parameters (`execute`)**:
 
-### Input
-```typescript
+```json
 {
-  // Configuration file path
-  json_path: string;
-  // Current purpose, data visualization or insight annotation addition
-  tool_type: "visualization" | "insight";
-  // Final product png or html; html supports vchart rendering and interaction
-  output_type: 'png' | 'html'
-  // Language, currently supports Chinese and English
-  language: "zh" | "en"
+  "json_path": "workspace/chart_meta.json",
+  "output_type": "html | png",
+  "tool_type": "visualization | insight",
+  "language": "en | zh"
 }
 ```
 
-## VMind Configuration
+- `output_type`: Defaults to `"html"` in `DataVisualization.execute()` (interactive VChart HTML page). Set `"png"` to render a static PNG via Puppeteer (`src/chartVisualize.ts` falls back to `"png"` only when `output_type` is omitted from raw stdin JSON).
+- `tool_type`: `"visualization"` generates charts and extracts up to 6 statistical insights (for bar, line, area, scatter, and dual-axis charts); `"insight"` updates an existing chart spec with selected insight annotations.
+- `language`: Insight text language (`"en"` default, or `"zh"`).
 
-### LLM
+**Generated Files** (saved under `workspace/visualization/`):
 
-VMind requires LLM invocation for intelligent chart generation. By default, it uses the `config.llm["default"]` configuration.
+- `<file_name>.html` or `<file_name>.png`: Rendered chart.
+- `<file_name>.json`: Serialized VChart specification and VMind insight objects.
+- `<file_name>.md`: Numbered Markdown summary of discovered insights (when applicable).
 
-### Generation Settings
+---
 
-Main configurations include chart dimensions, theme, and generation method:
-### Generation Method
-Default: png. Currently supports automatic selection of `output_type` by LLM based on context.
+## VMind & Rendering Settings
 
-### Dimensions
-Default dimensions are unspecified. For HTML output, charts fill the entire page by default. For PNG output, defaults to `1000*1000`.
+- **LLM Configuration**: `DataVisualization.invoke_vmind()` passes `config.llm["default"]` (`base_url`, `model`, `api_key`) to VMind (`${baseUrl}/chat/completions`). Use an OpenAI-compatible chat completions endpoint in `[llm]`.
+- **Dimensions & Theme**: Uses VChart's `"light"` theme (`theme: "light"`). HTML charts expand to `100%` width and height unless explicit dimensions are passed; PNG exports capture the rendered canvas via Puppeteer.
 
-### Theme
-Default theme: `'light'`. VChart supports multiple themes. See [Themes](https://www.visactor.io/vchart/guide/tutorial_docs/Theme/Theme_Extension).
+---
 
-## Test
+## Usage & Demo Scripts
 
-Currently, three tasks of different difficulty levels are set for testing.
+### Enable in `run_flow.py`
 
-### Simple Chart Generation Task
+To include `DataAnalysis` alongside `Manus` in the planning flow, update `config/config.toml`:
 
-Provide data and specific chart generation requirements, test results, execute the command:
-```bash
-python -m app.tool.chart_visualization.test.chart_demo
+```toml
+[runflow]
+flow_type = "planning"
+use_data_analysis_agent = true
 ```
-The results should be located under `workspace\visualization`, involving 9 different chart results.
 
-### Simple Data Report Task
+Then run `python run_flow.py`.
 
-Provide simple raw data analysis requirements, requiring simple processing of the data, execute the command:
-```bash
-python -m app.tool.chart_visualization.test.report_demo
-```
-The results are also located under `workspace\visualization`.
+### Run Standalone Demo Scripts
+
+Two runnable demo scripts are provided under `app/tool/chart_visualization/test/` (run from the WebScout repository root):
+
+1. **Multi-Chart Generation Demo** (runs 9 chart scenarios covering bar, pie/share, line trend, word cloud/popularity, scatter, funnel, grouped comparison, radar, and flow data):
+   ```bash
+   python -m app.tool.chart_visualization.test.chart_demo
+   ```
+
+2. **Graphical HTML Data Report Demo** (analyzes multi-team monthly hours and generates a complete HTML report with embedded charts):
+   ```bash
+   python -m app.tool.chart_visualization.test.report_demo
+   ```
+
+All generated charts, specs, and reports are written to `workspace/visualization/`.
