@@ -24,11 +24,13 @@ from app.commerce.models import (
     DecisionReport,
     EvidenceItem,
     ExecutionProfile,
-    PriceObservation,
     StepEvaluation,
 )
 from app.commerce.policy import (
     BRAND_DEFAULT_OFFICIAL_SOURCES,
+    SUPPORTED_REVIEW_COMMUNITY_PLATFORMS,
+    SUPPORTED_REVIEW_VIDEO_PLATFORMS,
+    SUPPORTED_SHOPPING_PLATFORMS,
     BrandSourcePolicy,
     build_configuration_signature,
     detect_product_identity,
@@ -38,18 +40,16 @@ from app.commerce.policy import (
     is_configuration_sensitive_family,
     resolve_policy,
     split_requested_platforms,
-    SUPPORTED_REVIEW_COMMUNITY_PLATFORMS,
-    SUPPORTED_REVIEW_VIDEO_PLATFORMS,
-    SUPPORTED_SHOPPING_PLATFORMS,
 )
 from app.commerce.prompts import (
     PLANNER_SYSTEM_PROMPT,
-    REVIEWER_SYSTEM_PROMPT,
     REVIEW_HIGHLIGHT_SYNTHESIZER_SYSTEM_PROMPT,
+    REVIEWER_SYSTEM_PROMPT,
 )
 from app.flow.base import BaseFlow
 from app.llm import LLM
 from app.logger import logger
+
 
 PLANNER_TIMEOUT_SECONDS = 180
 REVIEWER_TIMEOUT_SECONDS = 60
@@ -136,7 +136,15 @@ PRODUCT_COMPARE_V2_REVIEW_CONTEXT_MARKERS = (
 )
 PRODUCT_COMPARE_V2_REVIEW_LLM_SAMPLE_LIMIT = 36
 OFFICIAL_SOURCE_HINTS = {
-    "Apple.com": ["iphone", "ipad", "macbook", "mac mini", "mac studio", "apple watch", "airpods"],
+    "Apple.com": [
+        "iphone",
+        "ipad",
+        "macbook",
+        "mac mini",
+        "mac studio",
+        "apple watch",
+        "airpods",
+    ],
     "Samsung.com": ["galaxy", "samsung"],
     "store.google.com": ["pixel", "google pixel"],
 }
@@ -266,12 +274,10 @@ def _evaluate_step_contract(
     evidence: List[EvidenceItem],
     diagnostics: List[Dict[str, Any]],
 ) -> StepEvaluation:
-    matching_evidence = [item for item in evidence if _task_evidence_matches(task, item)]
-    criteria = (
-        task.step_contract.success_criteria
-        if task.step_contract
-        else []
-    )
+    matching_evidence = [
+        item for item in evidence if _task_evidence_matches(task, item)
+    ]
+    criteria = task.step_contract.success_criteria if task.step_contract else []
     if matching_evidence:
         return StepEvaluation(
             platform=task.platform,
@@ -325,7 +331,9 @@ def _evaluate_step_contract(
         evidence_count=0,
         success_criteria=criteria,
         next_action="replan",
-        failure_signature=_diagnostic_failure_signature(task, diagnostics, "no_evidence"),
+        failure_signature=_diagnostic_failure_signature(
+            task, diagnostics, "no_evidence"
+        ),
     )
 
 
@@ -482,12 +490,15 @@ def _series_comparison_subject(identity) -> str:
 def _review_subject_for_comparison(task_subject: str, comparison_subject: str) -> str:
     if not comparison_subject:
         return task_subject
-    return re.sub(
-        r"\s+(?:base configuration|representative model)\b",
-        "",
-        comparison_subject,
-        flags=re.IGNORECASE,
-    ).strip() or task_subject
+    return (
+        re.sub(
+            r"\s+(?:base configuration|representative model)\b",
+            "",
+            comparison_subject,
+            flags=re.IGNORECASE,
+        ).strip()
+        or task_subject
+    )
 
 
 def _marketplace_alignment_text(item: EvidenceItem) -> str:
@@ -515,7 +526,9 @@ def _apply_series_scope_marketplace_alignment(
     signatures: Dict[str, List[EvidenceItem]] = {}
     unresolved_items: List[EvidenceItem] = []
     for item in marketplace_items:
-        signature = build_configuration_signature(_marketplace_alignment_text(item), identity)
+        signature = build_configuration_signature(
+            _marketplace_alignment_text(item), identity
+        )
         if signature:
             item.metadata["series_signature"] = signature
             signatures.setdefault(signature, []).append(item)
@@ -548,9 +561,7 @@ def _apply_series_scope_marketplace_alignment(
         ]
 
     if not signatures and len(marketplace_items) >= 2:
-        return [
-            f"{plan.product_name} 当前还是系列级请求，商城标题没有稳定写出尺寸或芯片，是否同一配置仍需人工复核。"
-        ]
+        return [f"{plan.product_name} 当前还是系列级请求，商城标题没有稳定写出尺寸或芯片，是否同一配置仍需人工复核。"]
 
     return []
 
@@ -652,7 +663,9 @@ def _filter_requested_shopping_for_price_context(
 ) -> List[str]:
     if not requested_shopping:
         return []
-    price_segment, _review_segment = _product_compare_v2_price_review_segments(request_text)
+    price_segment, _review_segment = _product_compare_v2_price_review_segments(
+        request_text
+    )
     price_platforms = set(detect_requested_platforms(price_segment))
     return [platform for platform in requested_shopping if platform in price_platforms]
 
@@ -662,7 +675,9 @@ def _filter_unsupported_sources_for_retail_review_context(
 ) -> List[str]:
     if not unsupported_sources:
         return []
-    price_segment, review_segment = _product_compare_v2_price_review_segments(request_text)
+    price_segment, review_segment = _product_compare_v2_price_review_segments(
+        request_text
+    )
     if not review_segment:
         return unsupported_sources
     price_platforms = set(detect_requested_platforms(price_segment))
@@ -679,11 +694,11 @@ def _filter_unsupported_sources_for_retail_review_context(
     ]
 
 
-def _resolve_official_source(
-    identity, detected_platforms: List[str]
-) -> str:
+def _resolve_official_source(identity, detected_platforms: List[str]) -> str:
     brand = (getattr(identity, "brand", "") or "").strip()
-    detected_official = [platform for platform in detected_platforms if platform.endswith(".com")]
+    detected_official = [
+        platform for platform in detected_platforms if platform.endswith(".com")
+    ]
     if detected_official:
         return detected_official[0]
     return BRAND_DEFAULT_OFFICIAL_SOURCES.get(brand, "")
@@ -698,7 +713,10 @@ def _is_reportable_evidence(item: EvidenceItem) -> bool:
     ):
         return False
     if item.category == "pricing":
-        return item.price is not None and item.source_type in {"marketplace", "official"}
+        return item.price is not None and item.source_type in {
+            "marketplace",
+            "official",
+        }
     if item.category == "official":
         return item.source_type == "official"
     if item.source_role == "review_marketplace":
@@ -773,10 +791,12 @@ def _is_product_compare_v2_marketplace_review_item(item: EvidenceItem) -> bool:
 
 def _is_degraded_marketplace_item(item: EvidenceItem) -> bool:
     offer_condition = str(item.metadata.get("offer_condition") or "")
-    return (
-        item.metadata.get("quote_quality") == "degraded_marketplace"
-        or offer_condition in {"refurbished_or_renewed", "cross_region_or_international"}
-    )
+    return item.metadata.get(
+        "quote_quality"
+    ) == "degraded_marketplace" or offer_condition in {
+        "refurbished_or_renewed",
+        "cross_region_or_international",
+    }
 
 
 def _is_product_compare_v2_official_item(item: EvidenceItem) -> bool:
@@ -795,10 +815,7 @@ def _is_product_compare_v2_video_review_item(item: EvidenceItem) -> bool:
         and item.source_role == "review_video"
         and bool((item.extracted_text or item.snippet or "").strip())
         and not item.metadata.get("blocked_reason")
-        and (
-            item.platform != "YouTube"
-            or is_youtube_page(item.url)
-        )
+        and (item.platform != "YouTube" or is_youtube_page(item.url))
     )
 
 
@@ -944,7 +961,11 @@ def _build_review_coverage_fact(review_items: List[EvidenceItem]) -> str:
     if not review_items:
         return ""
     channels = _dedupe_strings(
-        [_get_review_channel(item) for item in review_items if _get_review_channel(item)]
+        [
+            _get_review_channel(item)
+            for item in review_items
+            if _get_review_channel(item)
+        ]
     )
     sample_count = len(review_items)
     if channels:
@@ -962,7 +983,12 @@ def _build_product_compare_v2_review_coverage_fact(
     video_items: List[EvidenceItem],
     community_items: List[EvidenceItem],
 ) -> str:
-    review_items = [*marketplace_review_items, *editorial_items, *video_items, *community_items]
+    review_items = [
+        *marketplace_review_items,
+        *editorial_items,
+        *video_items,
+        *community_items,
+    ]
     if not review_items:
         return ""
     grouped: Dict[tuple[str, str], int] = {}
@@ -971,7 +997,9 @@ def _build_product_compare_v2_review_coverage_fact(
         grouped[key] = grouped.get(key, 0) + 1
 
     parts: List[str] = []
-    for (platform, role), count in sorted(grouped.items(), key=lambda entry: entry[0][0]):
+    for (platform, role), count in sorted(
+        grouped.items(), key=lambda entry: entry[0][0]
+    ):
         if role == "review_marketplace":
             noun = "零售评论样本"
         elif role == "review_editorial":
@@ -990,14 +1018,21 @@ def _product_compare_v2_review_coverage_parts(
     video_items: List[EvidenceItem],
     community_items: List[EvidenceItem],
 ) -> List[str]:
-    review_items = [*marketplace_review_items, *editorial_items, *video_items, *community_items]
+    review_items = [
+        *marketplace_review_items,
+        *editorial_items,
+        *video_items,
+        *community_items,
+    ]
     grouped: Dict[tuple[str, str], int] = {}
     for item in review_items:
         key = (item.platform, item.source_role or "")
         grouped[key] = grouped.get(key, 0) + 1
 
     parts: List[str] = []
-    for (platform, role), count in sorted(grouped.items(), key=lambda entry: entry[0][0]):
+    for (platform, role), count in sorted(
+        grouped.items(), key=lambda entry: entry[0][0]
+    ):
         if role == "review_marketplace":
             noun = "零售评论样本"
         elif role == "review_editorial":
@@ -1089,9 +1124,7 @@ def _build_product_compare_v2_sample_coverage(
     ]
 
     if official_item:
-        coverage.append(
-            f"官方覆盖：已拿到 {official_item.platform} 官方基准，可用于校准型号、容量、版本和标价。"
-        )
+        coverage.append(f"官方覆盖：已拿到 {official_item.platform} 官方基准，可用于校准型号、容量、版本和标价。")
     else:
         coverage.append("官方覆盖：未拿到可用官方基准，价格判断只能作为初筛。")
 
@@ -1135,7 +1168,11 @@ def _build_product_compare_v2_sample_coverage(
         [_get_review_channel(item) for item in video_items if _get_review_channel(item)]
     )
     community_channels = _dedupe_strings(
-        [_get_review_channel(item) for item in community_items if _get_review_channel(item)]
+        [
+            _get_review_channel(item)
+            for item in community_items
+            if _get_review_channel(item)
+        ]
     )
     if planned_video_platforms:
         coverage.append(
@@ -1171,9 +1208,13 @@ def _build_product_compare_v2_price_analysis(
     degraded_marketplace_items: List[EvidenceItem],
 ) -> List[str]:
     analysis: List[str] = []
-    official_price = official_item.price if official_item and official_item.price else None
+    official_price = (
+        official_item.price if official_item and official_item.price else None
+    )
     marketplace_prices = [
-        item.price for item in clean_marketplace_items if item.price and item.price.amount is not None
+        item.price
+        for item in clean_marketplace_items
+        if item.price and item.price.amount is not None
     ]
     if official_price and official_price.price_text:
         analysis.append(
@@ -1182,11 +1223,17 @@ def _build_product_compare_v2_price_analysis(
     if marketplace_prices:
         sorted_prices = sorted(
             marketplace_prices,
-            key=lambda price: price.amount if price.amount is not None else float("inf"),
+            key=lambda price: price.amount
+            if price.amount is not None
+            else float("inf"),
         )
         cheapest = sorted_prices[0]
         highest = sorted_prices[-1]
-        if len(sorted_prices) > 1 and cheapest.amount is not None and highest.amount is not None:
+        if (
+            len(sorted_prices) > 1
+            and cheapest.amount is not None
+            and highest.amount is not None
+        ):
             analysis.append(
                 f"有效商城报价区间为 {cheapest.price_text} 到 {highest.price_text}，最低样本来自 {cheapest.platform}，最高样本来自 {highest.platform}。"
             )
@@ -1234,10 +1281,7 @@ def _build_product_compare_v2_evidence_matrix(
             f"| 商城价格 | {len(clean_marketplace_items)}/{planned_market_count or 0} | "
             "判断当前可购价、同款配置和渠道价差 | 高：需逐项复核 SKU |"
         ),
-        (
-            f"| 官方基准 | {official_status} | "
-            "校准型号、容量、官方标价和配置边界 | 高：品牌来源优先 |"
-        ),
+        (f"| 官方基准 | {official_status} | " "校准型号、容量、官方标价和配置边界 | 高：品牌来源优先 |"),
         (
             f"| 零售评论 | {len(marketplace_review_items)}/{planned_retail_review_count or 0} | "
             "观察真实买家评分、到货/品控/售后摩擦 | 中高：受页面公开性限制 |"
@@ -1266,7 +1310,12 @@ def _build_product_compare_v2_review_deep_dive(
     video_items: List[EvidenceItem],
     community_items: List[EvidenceItem],
 ) -> List[str]:
-    review_items = [*marketplace_review_items, *editorial_items, *video_items, *community_items]
+    review_items = [
+        *marketplace_review_items,
+        *editorial_items,
+        *video_items,
+        *community_items,
+    ]
     if not review_items:
         return ["当前缺少可用评测和社区样本，无法做真正的口碑归纳。"]
 
@@ -1279,7 +1328,9 @@ def _build_product_compare_v2_review_deep_dive(
         deep_dive.append(
             f"信号结构：{len(marketplace_review_items)} 条零售评论负责补买家评分和品控/售后摩擦，{len(video_items)} 条视频评测负责体验拆解，{len(community_items)} 条社区样本负责长期使用风险；三类信号需要分层阅读。"
         )
-    elif editorial_items and (video_items or community_items or marketplace_review_items):
+    elif editorial_items and (
+        video_items or community_items or marketplace_review_items
+    ):
         deep_dive.append(
             f"信号结构：已加入 {len(editorial_items)} 条专业评测/公开网页样本，可用来校准零售评论、视频观点和社区吐槽里的偏差。"
         )
@@ -1300,9 +1351,7 @@ def _build_product_compare_v2_review_deep_dive(
             f"信号结构：当前主要依赖 {len(editorial_items)} 条专业评测/公开网页样本，适合判断产品定位和体验框架，但真实买家与社区反馈仍偏薄。"
         )
     elif video_items:
-        deep_dive.append(
-            f"信号结构：当前主要依赖 {len(video_items)} 条视频评测，媒体视角较强，真实用户长期反馈仍偏薄。"
-        )
+        deep_dive.append(f"信号结构：当前主要依赖 {len(video_items)} 条视频评测，媒体视角较强，真实用户长期反馈仍偏薄。")
     else:
         deep_dive.append(
             f"信号结构：当前主要依赖 {len(community_items)} 条社区样本，真实用户味道更重，但缺少系统化评测校准。"
@@ -1313,13 +1362,9 @@ def _build_product_compare_v2_review_deep_dive(
 
     combined_lower = " ".join(_review_item_text(item).lower() for item in review_items)
     if _has_variant_mismatch_noise(product_name, combined_lower):
-        deep_dive.append(
-            "型号噪声：样本里出现相邻版本或高阶后缀内容，涉及 Pro、Plus、Ultra 等变体的判断需要回到原始链接确认。"
-        )
+        deep_dive.append("型号噪声：样本里出现相邻版本或高阶后缀内容，涉及 Pro、Plus、Ultra 等变体的判断需要回到原始链接确认。")
     if len(community_items) < 3:
-        deep_dive.append(
-            "社区置信度：社区样本仍少，足以提示风险方向，但还不能代表大规模用户情绪。"
-        )
+        deep_dive.append("社区置信度：社区样本仍少，足以提示风险方向，但还不能代表大规模用户情绪。")
     return _dedupe_strings(deep_dive)
 
 
@@ -1390,7 +1435,9 @@ def _format_theme_list(
     theme_stats: List[Dict[str, Any]], sample_count: int, limit: int = 2
 ) -> str:
     parts = []
-    for stat in sorted(theme_stats, key=lambda item: item["sample_hits"], reverse=True)[:limit]:
+    for stat in sorted(theme_stats, key=lambda item: item["sample_hits"], reverse=True)[
+        :limit
+    ]:
         label = stat["label"]
         sample_hits = stat["sample_hits"]
         positive_hits = stat["positive_hits"]
@@ -1417,65 +1464,319 @@ def _human_join(values: List[str]) -> str:
     return "、".join(cleaned[:-1]) + f"和{cleaned[-1]}"
 
 
-def _theme_rules_for_product(product_name: str) -> List[tuple[str, List[str], List[str], List[str], str]]:
+def _theme_rules_for_product(
+    product_name: str,
+) -> List[tuple[str, List[str], List[str], List[str], str]]:
     identity = detect_product_identity(product_name)
     category = (identity.category or "").lower()
 
     phone_rules = [
-        ("续航", ["battery", "battery life", "all-day", "all day", "screen-on"], ["good", "great", "solid", "strong", "better", "improved", "long"], ["bad", "poor", "weak", "drain", "worse", "issue"], "电池与续航"),
-        ("影像", ["camera", "photo", "photos", "video", "videography", "portrait", "zoom"], ["good", "great", "better", "improved", "strong", "best", "upgrade"], ["bad", "poor", "worse", "issue", "limited"], "相机、拍照或视频能力"),
-        ("性能", ["performance", "chip", "gaming", "fps", "smooth", "speed"], ["good", "great", "fast", "smooth", "improved", "better"], ["bad", "slow", "lag", "issue", "worse"], "性能、流畅度或芯片表现"),
-        ("发热", ["thermal", "thermals", "heat", "heating", "temperature", "hot"], ["managed", "fine", "improved", "better"], ["hot", "heat", "heating", "overheat", "warm", "issue"], "温度或散热表现"),
-        ("屏幕", ["display", "screen", "brightness", "oled", "refresh rate"], ["good", "great", "bright", "better", "smooth"], ["dim", "poor", "worse", "issue"], "显示效果或屏幕体验"),
-        ("长期体验", ["long-term", "long term", "months later", "daily use", "after using"], ["good", "great", "solid", "stable", "comfortable"], ["issue", "problem", "worse", "regret"], "长期使用体验"),
-        ("购买建议", ["worth", "value", "upgrade", "price", "pricing", "buy"], ["worth", "value", "better", "good", "great"], ["not worth", "expensive", "overpriced", "skip", "worse"], "价格、升级价值或是否值得买"),
+        (
+            "续航",
+            ["battery", "battery life", "all-day", "all day", "screen-on"],
+            ["good", "great", "solid", "strong", "better", "improved", "long"],
+            ["bad", "poor", "weak", "drain", "worse", "issue"],
+            "电池与续航",
+        ),
+        (
+            "影像",
+            ["camera", "photo", "photos", "video", "videography", "portrait", "zoom"],
+            ["good", "great", "better", "improved", "strong", "best", "upgrade"],
+            ["bad", "poor", "worse", "issue", "limited"],
+            "相机、拍照或视频能力",
+        ),
+        (
+            "性能",
+            ["performance", "chip", "gaming", "fps", "smooth", "speed"],
+            ["good", "great", "fast", "smooth", "improved", "better"],
+            ["bad", "slow", "lag", "issue", "worse"],
+            "性能、流畅度或芯片表现",
+        ),
+        (
+            "发热",
+            ["thermal", "thermals", "heat", "heating", "temperature", "hot"],
+            ["managed", "fine", "improved", "better"],
+            ["hot", "heat", "heating", "overheat", "warm", "issue"],
+            "温度或散热表现",
+        ),
+        (
+            "屏幕",
+            ["display", "screen", "brightness", "oled", "refresh rate"],
+            ["good", "great", "bright", "better", "smooth"],
+            ["dim", "poor", "worse", "issue"],
+            "显示效果或屏幕体验",
+        ),
+        (
+            "长期体验",
+            ["long-term", "long term", "months later", "daily use", "after using"],
+            ["good", "great", "solid", "stable", "comfortable"],
+            ["issue", "problem", "worse", "regret"],
+            "长期使用体验",
+        ),
+        (
+            "购买建议",
+            ["worth", "value", "upgrade", "price", "pricing", "buy"],
+            ["worth", "value", "better", "good", "great"],
+            ["not worth", "expensive", "overpriced", "skip", "worse"],
+            "价格、升级价值或是否值得买",
+        ),
     ]
     laptop_rules = [
-        ("续航", ["battery", "battery life", "all-day", "runtime"], ["good", "great", "solid", "strong", "long"], ["bad", "poor", "weak", "short", "issue"], "续航时长"),
-        ("性能", ["performance", "cpu", "gpu", "gaming", "render", "speed"], ["fast", "smooth", "great", "strong"], ["slow", "lag", "weak", "issue"], "性能释放"),
-        ("屏幕", ["display", "screen", "brightness", "oled", "mini-led", "panel"], ["good", "great", "bright", "sharp"], ["dim", "poor", "issue"], "屏幕素质"),
-        ("键盘与触控", ["keyboard", "trackpad", "typing", "touchpad"], ["good", "great", "comfortable", "solid"], ["bad", "poor", "issue", "shallow"], "键盘、触控板与输入体验"),
-        ("发热与噪音", ["thermal", "thermals", "heat", "fan", "noise", "hot"], ["quiet", "cool", "managed"], ["hot", "loud", "noise", "issue"], "散热与风扇噪音"),
-        ("做工与便携", ["build", "portable", "portability", "weight", "thin", "design"], ["good", "great", "premium", "light"], ["heavy", "bulky", "issue"], "做工、重量和便携性"),
-        ("购买建议", ["worth", "value", "price", "buy"], ["worth", "value", "good"], ["expensive", "overpriced", "skip"], "价格和购买价值"),
+        (
+            "续航",
+            ["battery", "battery life", "all-day", "runtime"],
+            ["good", "great", "solid", "strong", "long"],
+            ["bad", "poor", "weak", "short", "issue"],
+            "续航时长",
+        ),
+        (
+            "性能",
+            ["performance", "cpu", "gpu", "gaming", "render", "speed"],
+            ["fast", "smooth", "great", "strong"],
+            ["slow", "lag", "weak", "issue"],
+            "性能释放",
+        ),
+        (
+            "屏幕",
+            ["display", "screen", "brightness", "oled", "mini-led", "panel"],
+            ["good", "great", "bright", "sharp"],
+            ["dim", "poor", "issue"],
+            "屏幕素质",
+        ),
+        (
+            "键盘与触控",
+            ["keyboard", "trackpad", "typing", "touchpad"],
+            ["good", "great", "comfortable", "solid"],
+            ["bad", "poor", "issue", "shallow"],
+            "键盘、触控板与输入体验",
+        ),
+        (
+            "发热与噪音",
+            ["thermal", "thermals", "heat", "fan", "noise", "hot"],
+            ["quiet", "cool", "managed"],
+            ["hot", "loud", "noise", "issue"],
+            "散热与风扇噪音",
+        ),
+        (
+            "做工与便携",
+            ["build", "portable", "portability", "weight", "thin", "design"],
+            ["good", "great", "premium", "light"],
+            ["heavy", "bulky", "issue"],
+            "做工、重量和便携性",
+        ),
+        (
+            "购买建议",
+            ["worth", "value", "price", "buy"],
+            ["worth", "value", "good"],
+            ["expensive", "overpriced", "skip"],
+            "价格和购买价值",
+        ),
     ]
     tablet_rules = [
-        ("屏幕", ["display", "screen", "brightness", "oled", "mini-led", "panel"], ["good", "great", "bright", "sharp"], ["dim", "poor", "issue"], "屏幕观感"),
-        ("性能", ["performance", "chip", "speed", "smooth"], ["fast", "smooth", "great"], ["slow", "lag", "issue"], "性能与流畅度"),
-        ("续航", ["battery", "battery life", "all-day"], ["good", "great", "long"], ["poor", "weak", "issue"], "续航"),
-        ("生产力", ["keyboard", "pencil", "stylus", "multitask", "productivity"], ["useful", "good", "great"], ["limited", "issue", "awkward"], "配件与生产力体验"),
-        ("购买建议", ["worth", "value", "price", "buy"], ["worth", "value", "good"], ["expensive", "overpriced", "skip"], "价格和定位"),
+        (
+            "屏幕",
+            ["display", "screen", "brightness", "oled", "mini-led", "panel"],
+            ["good", "great", "bright", "sharp"],
+            ["dim", "poor", "issue"],
+            "屏幕观感",
+        ),
+        (
+            "性能",
+            ["performance", "chip", "speed", "smooth"],
+            ["fast", "smooth", "great"],
+            ["slow", "lag", "issue"],
+            "性能与流畅度",
+        ),
+        (
+            "续航",
+            ["battery", "battery life", "all-day"],
+            ["good", "great", "long"],
+            ["poor", "weak", "issue"],
+            "续航",
+        ),
+        (
+            "生产力",
+            ["keyboard", "pencil", "stylus", "multitask", "productivity"],
+            ["useful", "good", "great"],
+            ["limited", "issue", "awkward"],
+            "配件与生产力体验",
+        ),
+        (
+            "购买建议",
+            ["worth", "value", "price", "buy"],
+            ["worth", "value", "good"],
+            ["expensive", "overpriced", "skip"],
+            "价格和定位",
+        ),
     ]
     audio_rules = [
-        ("音质", ["sound", "audio", "bass", "treble", "detail"], ["good", "great", "excellent", "strong"], ["bad", "muddy", "harsh", "issue"], "音质表现"),
-        ("降噪与通话", ["anc", "noise cancelling", "noise canceling", "mic", "call"], ["good", "great", "clear", "strong"], ["bad", "poor", "issue"], "降噪和通话"),
-        ("佩戴与舒适度", ["comfort", "fit", "wear", "ear tips", "light"], ["comfortable", "good", "great", "secure"], ["pain", "loose", "issue", "fatigue"], "佩戴舒适度"),
-        ("续航", ["battery", "battery life", "charging"], ["good", "great", "long"], ["poor", "short", "issue"], "续航和充电"),
-        ("连接体验", ["connectivity", "bluetooth", "pairing", "connection"], ["stable", "good", "great"], ["drop", "unstable", "issue"], "连接稳定性"),
-        ("购买建议", ["worth", "value", "price", "buy"], ["worth", "value", "good"], ["expensive", "overpriced", "skip"], "价格和价值"),
+        (
+            "音质",
+            ["sound", "audio", "bass", "treble", "detail"],
+            ["good", "great", "excellent", "strong"],
+            ["bad", "muddy", "harsh", "issue"],
+            "音质表现",
+        ),
+        (
+            "降噪与通话",
+            ["anc", "noise cancelling", "noise canceling", "mic", "call"],
+            ["good", "great", "clear", "strong"],
+            ["bad", "poor", "issue"],
+            "降噪和通话",
+        ),
+        (
+            "佩戴与舒适度",
+            ["comfort", "fit", "wear", "ear tips", "light"],
+            ["comfortable", "good", "great", "secure"],
+            ["pain", "loose", "issue", "fatigue"],
+            "佩戴舒适度",
+        ),
+        (
+            "续航",
+            ["battery", "battery life", "charging"],
+            ["good", "great", "long"],
+            ["poor", "short", "issue"],
+            "续航和充电",
+        ),
+        (
+            "连接体验",
+            ["connectivity", "bluetooth", "pairing", "connection"],
+            ["stable", "good", "great"],
+            ["drop", "unstable", "issue"],
+            "连接稳定性",
+        ),
+        (
+            "购买建议",
+            ["worth", "value", "price", "buy"],
+            ["worth", "value", "good"],
+            ["expensive", "overpriced", "skip"],
+            "价格和价值",
+        ),
     ]
     wearable_rules = [
-        ("健康与运动", ["health", "fitness", "tracking", "heart rate", "sleep"], ["good", "great", "accurate", "useful"], ["bad", "poor", "issue", "inaccurate"], "健康和运动追踪"),
-        ("续航", ["battery", "battery life", "all-day"], ["good", "great", "long"], ["poor", "short", "issue"], "续航"),
-        ("屏幕与交互", ["display", "screen", "brightness", "ui", "interface"], ["good", "great", "bright", "smooth"], ["dim", "poor", "issue"], "显示和交互"),
-        ("佩戴体验", ["comfort", "fit", "band", "strap", "wear"], ["comfortable", "good", "light"], ["issue", "awkward", "heavy"], "佩戴舒适度"),
-        ("生态与应用", ["app", "ecosystem", "integration", "iphone", "android"], ["good", "great", "useful"], ["limited", "issue", "locked"], "生态兼容性"),
-        ("购买建议", ["worth", "value", "price", "buy"], ["worth", "value", "good"], ["expensive", "overpriced", "skip"], "价格和购买价值"),
+        (
+            "健康与运动",
+            ["health", "fitness", "tracking", "heart rate", "sleep"],
+            ["good", "great", "accurate", "useful"],
+            ["bad", "poor", "issue", "inaccurate"],
+            "健康和运动追踪",
+        ),
+        (
+            "续航",
+            ["battery", "battery life", "all-day"],
+            ["good", "great", "long"],
+            ["poor", "short", "issue"],
+            "续航",
+        ),
+        (
+            "屏幕与交互",
+            ["display", "screen", "brightness", "ui", "interface"],
+            ["good", "great", "bright", "smooth"],
+            ["dim", "poor", "issue"],
+            "显示和交互",
+        ),
+        (
+            "佩戴体验",
+            ["comfort", "fit", "band", "strap", "wear"],
+            ["comfortable", "good", "light"],
+            ["issue", "awkward", "heavy"],
+            "佩戴舒适度",
+        ),
+        (
+            "生态与应用",
+            ["app", "ecosystem", "integration", "iphone", "android"],
+            ["good", "great", "useful"],
+            ["limited", "issue", "locked"],
+            "生态兼容性",
+        ),
+        (
+            "购买建议",
+            ["worth", "value", "price", "buy"],
+            ["worth", "value", "good"],
+            ["expensive", "overpriced", "skip"],
+            "价格和购买价值",
+        ),
     ]
     console_rules = [
-        ("性能", ["performance", "fps", "load", "loading", "graphics"], ["good", "great", "fast", "smooth"], ["bad", "poor", "issue"], "性能与加载体验"),
-        ("游戏生态", ["games", "exclusive", "game pass", "library", "ecosystem"], ["good", "great", "strong"], ["weak", "limited", "issue"], "游戏阵容和生态"),
-        ("散热与噪音", ["thermal", "heat", "fan", "noise"], ["quiet", "cool", "managed"], ["hot", "loud", "issue"], "散热与噪音"),
-        ("手柄与交互", ["controller", "latency", "comfort"], ["good", "great", "comfortable"], ["issue", "drift", "bad"], "操控体验"),
-        ("购买建议", ["worth", "value", "price", "buy"], ["worth", "value", "good"], ["expensive", "overpriced", "skip"], "价格和价值"),
+        (
+            "性能",
+            ["performance", "fps", "load", "loading", "graphics"],
+            ["good", "great", "fast", "smooth"],
+            ["bad", "poor", "issue"],
+            "性能与加载体验",
+        ),
+        (
+            "游戏生态",
+            ["games", "exclusive", "game pass", "library", "ecosystem"],
+            ["good", "great", "strong"],
+            ["weak", "limited", "issue"],
+            "游戏阵容和生态",
+        ),
+        (
+            "散热与噪音",
+            ["thermal", "heat", "fan", "noise"],
+            ["quiet", "cool", "managed"],
+            ["hot", "loud", "issue"],
+            "散热与噪音",
+        ),
+        (
+            "手柄与交互",
+            ["controller", "latency", "comfort"],
+            ["good", "great", "comfortable"],
+            ["issue", "drift", "bad"],
+            "操控体验",
+        ),
+        (
+            "购买建议",
+            ["worth", "value", "price", "buy"],
+            ["worth", "value", "good"],
+            ["expensive", "overpriced", "skip"],
+            "价格和价值",
+        ),
     ]
     generic_rules = [
-        ("做工与质量", ["build", "quality", "durable", "durability", "material"], ["good", "great", "solid", "premium"], ["bad", "poor", "issue", "cheap"], "做工与质量"),
-        ("性能与体验", ["performance", "experience", "speed", "effective", "works"], ["good", "great", "strong", "smooth"], ["bad", "poor", "issue", "weak"], "核心使用体验"),
-        ("易用性", ["easy", "ease", "setup", "use", "user-friendly"], ["easy", "simple", "good", "great"], ["hard", "difficult", "issue", "confusing"], "上手难度和易用性"),
-        ("舒适与尺寸", ["comfort", "fit", "size", "portable", "weight"], ["comfortable", "good", "great", "light"], ["heavy", "awkward", "issue"], "尺寸、重量和舒适度"),
-        ("价格与价值", ["worth", "value", "price", "buy"], ["worth", "value", "good"], ["expensive", "overpriced", "skip"], "价格和价值"),
-        ("可靠性与售后", ["support", "service", "return", "warranty", "repair", "rma"], ["good", "great", "helpful"], ["bad", "poor", "issue", "slow"], "可靠性与售后"),
+        (
+            "做工与质量",
+            ["build", "quality", "durable", "durability", "material"],
+            ["good", "great", "solid", "premium"],
+            ["bad", "poor", "issue", "cheap"],
+            "做工与质量",
+        ),
+        (
+            "性能与体验",
+            ["performance", "experience", "speed", "effective", "works"],
+            ["good", "great", "strong", "smooth"],
+            ["bad", "poor", "issue", "weak"],
+            "核心使用体验",
+        ),
+        (
+            "易用性",
+            ["easy", "ease", "setup", "use", "user-friendly"],
+            ["easy", "simple", "good", "great"],
+            ["hard", "difficult", "issue", "confusing"],
+            "上手难度和易用性",
+        ),
+        (
+            "舒适与尺寸",
+            ["comfort", "fit", "size", "portable", "weight"],
+            ["comfortable", "good", "great", "light"],
+            ["heavy", "awkward", "issue"],
+            "尺寸、重量和舒适度",
+        ),
+        (
+            "价格与价值",
+            ["worth", "value", "price", "buy"],
+            ["worth", "value", "good"],
+            ["expensive", "overpriced", "skip"],
+            "价格和价值",
+        ),
+        (
+            "可靠性与售后",
+            ["support", "service", "return", "warranty", "repair", "rma"],
+            ["good", "great", "helpful"],
+            ["bad", "poor", "issue", "slow"],
+            "可靠性与售后",
+        ),
     ]
 
     if category == "phone":
@@ -1528,13 +1829,19 @@ def _build_review_highlights(
 
     item_texts = [_review_item_text(item) for item in review_items]
     channels = _dedupe_strings(
-        [_get_review_channel(item) for item in review_items if _get_review_channel(item)]
+        [
+            _get_review_channel(item)
+            for item in review_items
+            if _get_review_channel(item)
+        ]
     )
     combined_text = " ".join(chunk for chunk in item_texts if chunk)
     combined_lower = combined_text.lower()
     review_highlights: List[str] = []
     sample_count = len(review_items)
-    platforms = _dedupe_strings([item.platform for item in review_items if item.platform])
+    platforms = _dedupe_strings(
+        [item.platform for item in review_items if item.platform]
+    )
 
     if channels:
         named_channels = "、".join(channels[:3])
@@ -1545,17 +1852,23 @@ def _build_review_highlights(
             )
         else:
             platform_text = _human_join(platforms[:3]) or "公开平台"
-            source_line = (
-                f"这次汇总了 {sample_count} 条来自 {platform_text} 的公开样本，主要线索来自 {named_channels}。"
-            )
+            source_line = f"这次汇总了 {sample_count} 条来自 {platform_text} 的公开样本，主要线索来自 {named_channels}。"
     else:
         source_line = f"这次汇总了 {sample_count} 条公开评测与社区样本，可作为口碑归纳的基础。"
 
     theme_rules = _theme_rules_for_product(product_name)
     theme_stats: List[Dict[str, Any]] = []
-    for label, keywords, positive_hints, negative_hints, topic_description in theme_rules:
+    for (
+        label,
+        keywords,
+        positive_hints,
+        negative_hints,
+        topic_description,
+    ) in theme_rules:
         matched_texts = [
-            text for text in item_texts if any(keyword in text.lower() for keyword in keywords)
+            text
+            for text in item_texts
+            if any(keyword in text.lower() for keyword in keywords)
         ]
         if not matched_texts:
             continue
@@ -1581,19 +1894,13 @@ def _build_review_highlights(
         )
 
     advantages = [
-        stat
-        for stat in theme_stats
-        if stat["positive_hits"] > stat["negative_hits"]
+        stat for stat in theme_stats if stat["positive_hits"] > stat["negative_hits"]
     ]
     concerns = [
-        stat
-        for stat in theme_stats
-        if stat["negative_hits"] > stat["positive_hits"]
+        stat for stat in theme_stats if stat["negative_hits"] > stat["positive_hits"]
     ]
     controversies = [
-        stat
-        for stat in theme_stats
-        if stat["positive_hits"] and stat["negative_hits"]
+        stat for stat in theme_stats if stat["positive_hits"] and stat["negative_hits"]
     ]
     neutral_focus = [
         stat
@@ -1601,52 +1908,79 @@ def _build_review_highlights(
         if stat["positive_hits"] == stat["negative_hits"] == 0
     ]
 
-    top_theme_labels = [stat["label"] for stat in sorted(theme_stats, key=lambda item: item["sample_hits"], reverse=True)[:3]]
+    top_theme_labels = [
+        stat["label"]
+        for stat in sorted(
+            theme_stats, key=lambda item: item["sample_hits"], reverse=True
+        )[:3]
+    ]
     if top_theme_labels:
         source_line += f" 讨论最集中的主题是{_human_join(top_theme_labels)}。"
     review_highlights.append(source_line)
 
     if advantages and len(review_highlights) < limit:
-        top_advantages = [stat["label"] for stat in sorted(advantages, key=lambda item: item["sample_hits"], reverse=True)[:2]]
+        top_advantages = [
+            stat["label"]
+            for stat in sorted(
+                advantages, key=lambda item: item["sample_hits"], reverse=True
+            )[:2]
+        ]
         focus_line = f"综合这些样本，整体偏正面的反馈主要集中在{_human_join(top_advantages)}上。"
         if neutral_focus:
-            top_focus = [stat["label"] for stat in sorted(neutral_focus, key=lambda item: item["sample_hits"], reverse=True)[:2]]
+            top_focus = [
+                stat["label"]
+                for stat in sorted(
+                    neutral_focus, key=lambda item: item["sample_hits"], reverse=True
+                )[:2]
+            ]
             focus_line += f" {_human_join(top_focus)}也是几乎每条评测都会覆盖的核心话题。"
-        review_highlights.append(
-            focus_line
-        )
+        review_highlights.append(focus_line)
     elif neutral_focus and len(review_highlights) < limit:
-        top_focus = [stat["label"] for stat in sorted(neutral_focus, key=lambda item: item["sample_hits"], reverse=True)[:3]]
-        review_highlights.append(
-            f"综合这些样本，{_human_join(top_focus)}是评测里反复提到的核心体验点。"
-        )
+        top_focus = [
+            stat["label"]
+            for stat in sorted(
+                neutral_focus, key=lambda item: item["sample_hits"], reverse=True
+            )[:3]
+        ]
+        review_highlights.append(f"综合这些样本，{_human_join(top_focus)}是评测里反复提到的核心体验点。")
 
     has_model_mismatch = _has_variant_mismatch_noise(product_name, combined_lower)
     if has_model_mismatch and len(review_highlights) < limit:
         risk_line = "需要注意的是，当前样本里可能混入了更高配、不同后缀或相近版本的对比内容，这些结论不能直接套用到目标商品。"
         if concerns:
-            top_concerns = [stat["label"] for stat in sorted(concerns, key=lambda item: item["sample_hits"], reverse=True)[:2]]
+            top_concerns = [
+                stat["label"]
+                for stat in sorted(
+                    concerns, key=lambda item: item["sample_hits"], reverse=True
+                )[:2]
+            ]
             risk_line += f" 另外，{_human_join(top_concerns)}也在部分评测里出现了保留意见。"
         review_highlights.append(risk_line)
     elif concerns and len(review_highlights) < limit:
-        top_concerns = [stat["label"] for stat in sorted(concerns, key=lambda item: item["sample_hits"], reverse=True)[:2]]
+        top_concerns = [
+            stat["label"]
+            for stat in sorted(
+                concerns, key=lambda item: item["sample_hits"], reverse=True
+            )[:2]
+        ]
         review_highlights.append(
             f"需要留意的是，{_human_join(top_concerns)}在部分评测里出现了保留意见，购买前最好点开完整视频核对细节。"
         )
     elif controversies and len(review_highlights) < limit:
-        top_controversies = [stat["label"] for stat in sorted(controversies, key=lambda item: item["sample_hits"], reverse=True)[:2]]
+        top_controversies = [
+            stat["label"]
+            for stat in sorted(
+                controversies, key=lambda item: item["sample_hits"], reverse=True
+            )[:2]
+        ]
         review_highlights.append(
             f"分歧主要出现在{_human_join(top_controversies)}上，不同评测给出的判断并不完全一致。"
         )
     elif len(review_highlights) < limit:
-        review_highlights.append(
-            "当前样本里还没有出现集中一致的负面主题，但版本差异、售后体验和价格是否匹配仍建议点开原始内容复核。"
-        )
+        review_highlights.append("当前样本里还没有出现集中一致的负面主题，但版本差异、售后体验和价格是否匹配仍建议点开原始内容复核。")
 
     if len(review_highlights) < limit:
-        review_highlights.append(
-            "这些结论主要来自公开评测标题、摘要和社区摘录，足够支撑初步口碑判断，但还不是评论区级别的完整情绪统计。"
-        )
+        review_highlights.append("这些结论主要来自公开评测标题、摘要和社区摘录，足够支撑初步口碑判断，但还不是评论区级别的完整情绪统计。")
 
     return _dedupe_strings(review_highlights)[:limit]
 
@@ -1703,9 +2037,15 @@ class CommerceDecisionFlow(BaseFlow):
             "transient_observation": {},
             "step_evaluations": [],
             "environment": {
-                "browser_backend": self.executor.environment_metadata["browser_backend"],
-                "browser_session_mode": self.executor.environment_metadata["browser_session_mode"],
-                "session_browser_backend": self.executor.environment_metadata["session_browser_backend"],
+                "browser_backend": self.executor.environment_metadata[
+                    "browser_backend"
+                ],
+                "browser_session_mode": self.executor.environment_metadata[
+                    "browser_session_mode"
+                ],
+                "session_browser_backend": self.executor.environment_metadata[
+                    "session_browser_backend"
+                ],
                 "sandbox_mode": self.executor.environment_metadata["sandbox_mode"],
                 "vision_model": self.executor.environment_metadata["vision_model"],
                 "mcp_servers": self.executor.environment_metadata["mcp_servers"],
@@ -2038,7 +2378,11 @@ class CommerceDecisionFlow(BaseFlow):
             shopping_platforms=list(STABLE_PUBLIC_WEB_SHOPPING_PLATFORMS),
             community_platforms=list(STABLE_PUBLIC_WEB_COMMUNITY_PLATFORMS),
             official_sources=list(STABLE_PUBLIC_WEB_OFFICIAL_SOURCES),
-            decision_focus=["price comparison", "public video reviews", "official confirmation"],
+            decision_focus=[
+                "price comparison",
+                "public video reviews",
+                "official confirmation",
+            ],
             tasks=tasks,
         )
 
@@ -2046,7 +2390,11 @@ class CommerceDecisionFlow(BaseFlow):
         identity = detect_product_identity(request_text)
         policy = resolve_policy(identity)
         detected_platforms = detect_requested_platforms(request_text)
-        requested_shopping, requested_reviews, unsupported_sources = split_requested_platforms(
+        (
+            requested_shopping,
+            requested_reviews,
+            unsupported_sources,
+        ) = split_requested_platforms(
             detected_platforms,
             policy,
         )
@@ -2058,33 +2406,48 @@ class CommerceDecisionFlow(BaseFlow):
             request_text,
             unsupported_sources,
         )
-        price_segment, _review_segment = _product_compare_v2_price_review_segments(request_text)
+        price_segment, _review_segment = _product_compare_v2_price_review_segments(
+            request_text
+        )
         price_detected_platforms = detect_requested_platforms(price_segment)
 
         product_name = (
-            identity.model_name or _extract_product_name(request_text) or request_text.strip()
+            identity.model_name
+            or _extract_product_name(request_text)
+            or request_text.strip()
         )
-        default_shopping, default_video_reviews, default_community_reviews = (
-            _default_platforms_for_request(request_text, policy)
-        )
+        (
+            default_shopping,
+            default_video_reviews,
+            default_community_reviews,
+        ) = _default_platforms_for_request(request_text, policy)
         official_source = (
-            policy.official_source if policy is not None else _resolve_official_source(identity, detected_platforms)
+            policy.official_source
+            if policy is not None
+            else _resolve_official_source(identity, detected_platforms)
         )
 
         named_shopping_platforms = bool(
             price_detected_platforms
             and any(
-                platform in {*PRODUCT_COMPARE_V2_EXTRA_RETAIL_REVIEW_PLATFORMS, *SHOPPING_PLATFORMS}
+                platform
+                in {
+                    *PRODUCT_COMPARE_V2_EXTRA_RETAIL_REVIEW_PLATFORMS,
+                    *SHOPPING_PLATFORMS,
+                }
                 for platform in price_detected_platforms
             )
         )
         named_review_platforms = bool(
-            detected_platforms and any(platform in COMMUNITY_PLATFORMS for platform in detected_platforms)
+            detected_platforms
+            and any(platform in COMMUNITY_PLATFORMS for platform in detected_platforms)
         )
 
         if requested_price_shopping:
             selected_shopping = [
-                platform for platform in requested_price_shopping if platform in SUPPORTED_SHOPPING_PLATFORMS
+                platform
+                for platform in requested_price_shopping
+                if platform in SUPPORTED_SHOPPING_PLATFORMS
             ]
         elif named_shopping_platforms:
             selected_shopping = []
@@ -2092,10 +2455,14 @@ class CommerceDecisionFlow(BaseFlow):
             selected_shopping = default_shopping
 
         requested_video_reviews = [
-            platform for platform in requested_reviews if platform in SUPPORTED_REVIEW_VIDEO_PLATFORMS
+            platform
+            for platform in requested_reviews
+            if platform in SUPPORTED_REVIEW_VIDEO_PLATFORMS
         ]
         requested_community_reviews = [
-            platform for platform in requested_reviews if platform in SUPPORTED_REVIEW_COMMUNITY_PLATFORMS
+            platform
+            for platform in requested_reviews
+            if platform in SUPPORTED_REVIEW_COMMUNITY_PLATFORMS
         ]
         if requested_reviews:
             selected_video_reviews = requested_video_reviews
@@ -2118,25 +2485,29 @@ class CommerceDecisionFlow(BaseFlow):
             or _brand_qualified_product_name(identity)
             or product_name
         )
-        review_subject = _review_subject_for_comparison(task_subject, comparison_subject)
+        review_subject = _review_subject_for_comparison(
+            task_subject, comparison_subject
+        )
         policy_id = policy.policy_id if policy is not None else "generic_product_v2"
         tasks: List[CommerceTask] = []
         for platform in selected_shopping:
             pricing_goal_product = (
-                f"{task_subject} 代表型号"
-                if comparison_subject
-                else task_subject
+                f"{task_subject} 代表型号" if comparison_subject else task_subject
             )
             tasks.append(
                 CommerceTask(
                     category="pricing",
                     platform=platform,
-                    query=_build_task_query(task_subject, platform, "pricing", request_text),
+                    query=_build_task_query(
+                        task_subject, platform, "pricing", request_text
+                    ),
                     goal=f"Collect current pricing, seller, and fulfillment details for {pricing_goal_product} on {platform}.",
                     max_results=5,
                     require_browser=True,
                     source_role="marketplace",
-                    strategy="policy_direct" if policy is not None else "search_browser",
+                    strategy="policy_direct"
+                    if policy is not None
+                    else "search_browser",
                     preferred_mcp_tools=(
                         policy.preferred_mcp_tools.get("marketplace", [])
                         if policy is not None
@@ -2148,20 +2519,22 @@ class CommerceDecisionFlow(BaseFlow):
             )
         if official_source:
             official_goal_product = (
-                f"{task_subject} 代表型号"
-                if comparison_subject
-                else task_subject
+                f"{task_subject} 代表型号" if comparison_subject else task_subject
             )
             tasks.append(
                 CommerceTask(
                     category="official",
                     platform=official_source,
-                    query=_build_task_query(task_subject, official_source, "official", request_text),
+                    query=_build_task_query(
+                        task_subject, official_source, "official", request_text
+                    ),
                     goal=f"Confirm official product details, variants, and current list price for {official_goal_product} from {official_source}.",
                     max_results=3,
                     require_browser=True,
                     source_role="official",
-                    strategy="policy_direct" if policy is not None else "search_browser",
+                    strategy="policy_direct"
+                    if policy is not None
+                    else "search_browser",
                     preferred_mcp_tools=(
                         policy.preferred_mcp_tools.get("official", [])
                         if policy is not None
@@ -2176,7 +2549,9 @@ class CommerceDecisionFlow(BaseFlow):
                 CommerceTask(
                     category="reviews",
                     platform=platform,
-                    query=_build_task_query(review_subject, platform, "reviews", request_text),
+                    query=_build_task_query(
+                        review_subject, platform, "reviews", request_text
+                    ),
                     goal=(
                         f"Collect public retail rating and customer review signals for "
                         f"{review_subject} from {platform}."
@@ -2184,7 +2559,9 @@ class CommerceDecisionFlow(BaseFlow):
                     max_results=PRODUCT_COMPARE_V2_MARKETPLACE_REVIEW_SAMPLE_COUNT,
                     require_browser=False,
                     source_role="review_marketplace",
-                    strategy="policy_direct" if policy is not None else "search_browser",
+                    strategy="policy_direct"
+                    if policy is not None
+                    else "search_browser",
                     preferred_mcp_tools=(
                         policy.preferred_mcp_tools.get("review_marketplace", [])
                         if policy is not None
@@ -2222,7 +2599,12 @@ class CommerceDecisionFlow(BaseFlow):
                 CommerceTask(
                     category=_review_task_category(platform),
                     platform=platform,
-                    query=_build_task_query(review_subject, platform, _review_task_category(platform), request_text),
+                    query=_build_task_query(
+                        review_subject,
+                        platform,
+                        _review_task_category(platform),
+                        request_text,
+                    ),
                     goal=(
                         f"Summarize recurring praise, complaints, and fit-for-use advice for {review_subject} "
                         f"from public {platform} samples."
@@ -2234,7 +2616,9 @@ class CommerceDecisionFlow(BaseFlow):
                     ),
                     require_browser=False,
                     source_role=source_role,
-                    strategy="policy_direct" if policy is not None else "search_browser",
+                    strategy="policy_direct"
+                    if policy is not None
+                    else "search_browser",
                     preferred_mcp_tools=(
                         policy.preferred_mcp_tools.get(source_role, [])
                         if policy is not None and source_role
@@ -2302,7 +2686,9 @@ class CommerceDecisionFlow(BaseFlow):
             CommerceTask(
                 category="pricing",
                 platform=platform,
-                query=_build_task_query(product_name, platform, "pricing", request_text),
+                query=_build_task_query(
+                    product_name, platform, "pricing", request_text
+                ),
                 goal=f"提取 {product_name} 在 {platform} 上的价格、促销与卖家信息",
                 require_browser=True,
                 max_results=3,
@@ -2327,12 +2713,16 @@ class CommerceDecisionFlow(BaseFlow):
         for platform in community_platforms:
             tasks.append(
                 CommerceTask(
-                    category="social" if platform in {"Reddit", "Xiaohongshu", "Weibo"} else "reviews",
+                    category="social"
+                    if platform in {"Reddit", "Xiaohongshu", "Weibo"}
+                    else "reviews",
                     platform=platform,
                     query=_build_task_query(
                         product_name,
                         platform,
-                        "social" if platform in {"Reddit", "Xiaohongshu", "Weibo"} else "reviews",
+                        "social"
+                        if platform in {"Reddit", "Xiaohongshu", "Weibo"}
+                        else "reviews",
                         request_text,
                     ),
                     goal=f"收集 {product_name} 在 {platform} 上的真实口碑、优缺点与购买建议",
@@ -2370,10 +2760,12 @@ class CommerceDecisionFlow(BaseFlow):
                 for item in reportable_evidence
                 if _is_stable_public_demo_review_item(item)
             ]
-            stable_review_highlights = await self._build_stable_public_demo_review_highlights(
-                plan.product_name,
-                stable_review_items,
-                limit=4,
+            stable_review_highlights = (
+                await self._build_stable_public_demo_review_highlights(
+                    plan.product_name,
+                    stable_review_items,
+                    limit=4,
+                )
             )
             missing_sources = self._get_stable_public_demo_missing_sources(
                 reportable_evidence
@@ -2488,7 +2880,9 @@ class CommerceDecisionFlow(BaseFlow):
             )
 
         official_count = sum(1 for item in evidence if item.source_type == "official")
-        review_count = sum(1 for item in evidence if item.category in {"reviews", "social"})
+        review_count = sum(
+            1 for item in evidence if item.category in {"reviews", "social"}
+        )
         priced_platforms = {
             item.platform
             for item in evidence
@@ -2511,7 +2905,9 @@ class CommerceDecisionFlow(BaseFlow):
             (task.platform, task.category) for task in (completed_tasks or [])
         }
         missing_shopping_platforms = [
-            platform for platform in plan.shopping_platforms if platform not in priced_platforms
+            platform
+            for platform in plan.shopping_platforms
+            if platform not in priced_platforms
         ]
         for platform in missing_shopping_platforms[:2]:
             if (platform, "pricing") in attempted_platform_categories:
@@ -2539,7 +2935,9 @@ class CommerceDecisionFlow(BaseFlow):
                 CommerceTask(
                     category="official",
                     platform=official_platform,
-                    query=_build_task_query(plan.product_name, official_platform, "official"),
+                    query=_build_task_query(
+                        plan.product_name, official_platform, "official"
+                    ),
                     goal=f"确认 {plan.product_name} 的官方规格、上市时间和型号差异",
                     require_browser=True,
                     max_results=3,
@@ -2575,7 +2973,9 @@ class CommerceDecisionFlow(BaseFlow):
             for item in evidence
             if _is_product_compare_v2_marketplace_item(item)
         }
-        has_official = any(_is_product_compare_v2_official_item(item) for item in evidence)
+        has_official = any(
+            _is_product_compare_v2_official_item(item) for item in evidence
+        )
         collected_video_platforms = {
             item.platform
             for item in evidence
@@ -2597,16 +2997,22 @@ class CommerceDecisionFlow(BaseFlow):
             if _is_product_compare_v2_community_review_item(item)
         }
         planned_marketplace_review_platforms = [
-            task.platform for task in plan.tasks if task.source_role == "review_marketplace"
+            task.platform
+            for task in plan.tasks
+            if task.source_role == "review_marketplace"
         ]
         planned_video_platforms = [
             task.platform for task in plan.tasks if task.source_role == "review_video"
         ]
         planned_editorial_platforms = [
-            task.platform for task in plan.tasks if task.source_role == "review_editorial"
+            task.platform
+            for task in plan.tasks
+            if task.source_role == "review_editorial"
         ]
         planned_community_platforms = [
-            task.platform for task in plan.tasks if task.source_role == "review_community"
+            task.platform
+            for task in plan.tasks
+            if task.source_role == "review_community"
         ]
 
         task_subject = (
@@ -2767,7 +3173,10 @@ class CommerceDecisionFlow(BaseFlow):
             elif task.category == "official" and task.platform == "Apple.com":
                 attempted_sources.add("Apple official")
         followups: List[CommerceTask] = []
-        if "Amazon price" in missing_sources and "Amazon price" not in attempted_sources:
+        if (
+            "Amazon price" in missing_sources
+            and "Amazon price" not in attempted_sources
+        ):
             followups.append(
                 CommerceTask(
                     category="pricing",
@@ -2778,7 +3187,10 @@ class CommerceDecisionFlow(BaseFlow):
                     max_results=3,
                 )
             )
-        if "Best Buy price" in missing_sources and "Best Buy price" not in attempted_sources:
+        if (
+            "Best Buy price" in missing_sources
+            and "Best Buy price" not in attempted_sources
+        ):
             followups.append(
                 CommerceTask(
                     category="pricing",
@@ -2789,7 +3201,10 @@ class CommerceDecisionFlow(BaseFlow):
                     max_results=3,
                 )
             )
-        if "YouTube review" in missing_sources and "YouTube review" not in attempted_sources:
+        if (
+            "YouTube review" in missing_sources
+            and "YouTube review" not in attempted_sources
+        ):
             followups.append(
                 CommerceTask(
                     category="reviews",
@@ -2803,7 +3218,10 @@ class CommerceDecisionFlow(BaseFlow):
                     max_results=STABLE_PUBLIC_WEB_REVIEW_SAMPLE_COUNT,
                 )
             )
-        if "Apple official" in missing_sources and "Apple official" not in attempted_sources:
+        if (
+            "Apple official" in missing_sources
+            and "Apple official" not in attempted_sources
+        ):
             followups.append(
                 CommerceTask(
                     category="official",
@@ -2882,15 +3300,22 @@ class CommerceDecisionFlow(BaseFlow):
             for index, item in enumerate(trimmed_items, start=1)
         ]
         channels = _dedupe_strings(
-            [_get_review_channel(item) for item in trimmed_items if _get_review_channel(item)]
+            [
+                _get_review_channel(item)
+                for item in trimmed_items
+                if _get_review_channel(item)
+            ]
         )
-        has_model_mismatch = any(
-            re.search(
-                r"\bpro max\b|\biphone\s*\d+\s*pro\b|\b16\s*pro\b",
-                (_review_item_text(item)).lower(),
+        has_model_mismatch = (
+            any(
+                re.search(
+                    r"\bpro max\b|\biphone\s*\d+\s*pro\b|\b16\s*pro\b",
+                    (_review_item_text(item)).lower(),
+                )
+                for item in trimmed_items
             )
-            for item in trimmed_items
-        ) and "pro" not in product_name.lower()
+            and "pro" not in product_name.lower()
+        )
         notes = []
         if channels:
             notes.append(f"Main channels seen: {', '.join(channels[:8])}.")
@@ -2927,7 +3352,9 @@ class CommerceDecisionFlow(BaseFlow):
             if highlights:
                 return highlights[:limit]
         except Exception as exc:
-            logger.warning(f"Stable review highlight synthesis fallback triggered: {exc}")
+            logger.warning(
+                f"Stable review highlight synthesis fallback triggered: {exc}"
+            )
 
         return _build_review_highlights(product_name, trimmed_items, limit=limit)
 
@@ -2941,7 +3368,12 @@ class CommerceDecisionFlow(BaseFlow):
         *,
         limit: int = 6,
     ) -> List[str]:
-        review_items = [*marketplace_review_items, *editorial_items, *video_items, *community_items]
+        review_items = [
+            *marketplace_review_items,
+            *editorial_items,
+            *video_items,
+            *community_items,
+        ]
         if not review_items:
             return []
 
@@ -2997,7 +3429,9 @@ class CommerceDecisionFlow(BaseFlow):
             if highlights:
                 return highlights[:limit]
         except Exception as exc:
-            logger.warning(f"Product compare V2 review synthesis fallback triggered: {exc}")
+            logger.warning(
+                f"Product compare V2 review synthesis fallback triggered: {exc}"
+            )
 
         return _build_review_highlights(product_name, trimmed_items, limit=limit)
 
@@ -3014,7 +3448,10 @@ class CommerceDecisionFlow(BaseFlow):
         marketplace_items: List[EvidenceItem] = []
         seen_marketplaces = set()
         for item in evidence:
-            if _is_product_compare_v2_marketplace_item(item) and item.platform not in seen_marketplaces:
+            if (
+                _is_product_compare_v2_marketplace_item(item)
+                and item.platform not in seen_marketplaces
+            ):
                 marketplace_items.append(item)
                 seen_marketplaces.add(item.platform)
         series_scope_notes = _apply_series_scope_marketplace_alignment(
@@ -3034,13 +3471,19 @@ class CommerceDecisionFlow(BaseFlow):
             item for item in evidence if _is_product_compare_v2_video_review_item(item)
         ]
         marketplace_review_items = [
-            item for item in evidence if _is_product_compare_v2_marketplace_review_item(item)
+            item
+            for item in evidence
+            if _is_product_compare_v2_marketplace_review_item(item)
         ]
         editorial_items = [
-            item for item in evidence if _is_product_compare_v2_editorial_review_item(item)
+            item
+            for item in evidence
+            if _is_product_compare_v2_editorial_review_item(item)
         ]
         community_items = [
-            item for item in evidence if _is_product_compare_v2_community_review_item(item)
+            item
+            for item in evidence
+            if _is_product_compare_v2_community_review_item(item)
         ]
         review_highlights = await self._build_product_compare_v2_review_highlights(
             plan.product_name,
@@ -3055,23 +3498,31 @@ class CommerceDecisionFlow(BaseFlow):
             task.platform for task in plan.tasks if task.source_role == "marketplace"
         ]
         planned_marketplace_review_platforms = [
-            task.platform for task in plan.tasks if task.source_role == "review_marketplace"
+            task.platform
+            for task in plan.tasks
+            if task.source_role == "review_marketplace"
         ]
         planned_video_platforms = [
             task.platform for task in plan.tasks if task.source_role == "review_video"
         ]
         planned_editorial_platforms = [
-            task.platform for task in plan.tasks if task.source_role == "review_editorial"
+            task.platform
+            for task in plan.tasks
+            if task.source_role == "review_editorial"
         ]
         planned_community_platforms = [
-            task.platform for task in plan.tasks if task.source_role == "review_community"
+            task.platform
+            for task in plan.tasks
+            if task.source_role == "review_community"
         ]
         required_market_quotes = min(2, len(planned_marketplaces))
         degraded_marketplace_items = [
             item for item in marketplace_items if _is_degraded_marketplace_item(item)
         ]
         clean_marketplace_items = [
-            item for item in marketplace_items if not _is_degraded_marketplace_item(item)
+            item
+            for item in marketplace_items
+            if not _is_degraded_marketplace_item(item)
         ]
         market_count = len(clean_marketplace_items)
         degraded_market_count = len(degraded_marketplace_items)
@@ -3084,7 +3535,8 @@ class CommerceDecisionFlow(BaseFlow):
         collected_community_platforms = {item.platform for item in community_items}
         unsupported_sources = list(plan.unsupported_sources)
         require_official = bool(
-            plan.official_sources or any(task.source_role == "official" for task in plan.tasks)
+            plan.official_sources
+            or any(task.source_role == "official" for task in plan.tasks)
         )
 
         missing_bits: List[str] = []
@@ -3098,9 +3550,7 @@ class CommerceDecisionFlow(BaseFlow):
                     for item in degraded_marketplace_items
                 )
                 missing_bits.append(
-                    "同一配置的第二个有效商城报价"
-                    if has_series_scope_gap
-                    else "第二个有效商城报价"
+                    "同一配置的第二个有效商城报价" if has_series_scope_gap else "第二个有效商城报价"
                 )
         if require_official and not has_official:
             missing_bits.append("官方基准")
@@ -3124,7 +3574,9 @@ class CommerceDecisionFlow(BaseFlow):
             satisfied_requirements += int(has_official)
         total_requirements += len(planned_video_platforms)
         satisfied_requirements += sum(
-            1 for platform in planned_video_platforms if platform in collected_video_platforms
+            1
+            for platform in planned_video_platforms
+            if platform in collected_video_platforms
         )
         total_requirements += len(planned_editorial_platforms)
         satisfied_requirements += sum(
@@ -3154,7 +3606,9 @@ class CommerceDecisionFlow(BaseFlow):
         degraded_marketplace_quotes = [
             item.price for item in degraded_marketplace_items if item.price is not None
         ]
-        official_baseline = official_item.price if official_item and official_item.price else None
+        official_baseline = (
+            official_item.price if official_item and official_item.price else None
+        )
         review_coverage_fact = _build_product_compare_v2_review_coverage_fact(
             marketplace_review_items,
             editorial_items,
@@ -3178,13 +3632,9 @@ class CommerceDecisionFlow(BaseFlow):
         coverage_bits.extend(review_coverage_parts)
 
         if status == "complete":
-            executive_summary = (
-                f"已为 {plan.product_name} 补齐{_join_report_phrases(coverage_bits) or '关键证据'}，当前证据足以支持一版购买判断。"
-            )
+            executive_summary = f"已为 {plan.product_name} 补齐{_join_report_phrases(coverage_bits) or '关键证据'}，当前证据足以支持一版购买判断。"
             if degraded_marketplace_items:
-                executive_summary = (
-                    f"已为 {plan.product_name} 补齐{_join_report_phrases(coverage_bits) or '关键证据'}，但其中至少有一条商城报价不是完全同款全新样本，适合做参考，不宜直接与官方价并排下结论。"
-                )
+                executive_summary = f"已为 {plan.product_name} 补齐{_join_report_phrases(coverage_bits) or '关键证据'}，但其中至少有一条商城报价不是完全同款全新样本，适合做参考，不宜直接与官方价并排下结论。"
         elif status == "partial":
             executive_summary = (
                 f"已为 {plan.product_name} 拿到{_join_report_phrases(coverage_bits) or '部分关键证据'}，"
@@ -3197,14 +3647,10 @@ class CommerceDecisionFlow(BaseFlow):
                 f"当前结果未完成，主要因为请求里包含暂不支持的来源：{', '.join(unsupported_sources)}。"
             )
         else:
-            executive_summary = (
-                f"已围绕 {plan.product_name} 收集到部分证据，但仍缺 {_join_report_phrases(missing_bits) if missing_bits else '关键支撑信息'}。"
-            )
+            executive_summary = f"已围绕 {plan.product_name} 收集到部分证据，但仍缺 {_join_report_phrases(missing_bits) if missing_bits else '关键支撑信息'}。"
 
         if marketplace_quotes and official_baseline:
-            recommended_choice = (
-                "先用官方基准统一型号、容量、颜色和销售条件，再只比较同一配置、同一成色、售后条件一致的商城报价。"
-            )
+            recommended_choice = "先用官方基准统一型号、容量、颜色和销售条件，再只比较同一配置、同一成色、售后条件一致的商城报价。"
         elif missing_bits:
             recommended_choice = (
                 f"当前只适合作为初筛；请先补齐{_join_report_phrases(missing_bits)}，再把这轮结果当作最终购买建议。"
@@ -3234,7 +3680,9 @@ class CommerceDecisionFlow(BaseFlow):
                 if quote.price_text
             ],
             *(
-                [f"{official_baseline.platform} 官方页面显示 {plan.product_name} 价格为 {official_baseline.price_text}。"]
+                [
+                    f"{official_baseline.platform} 官方页面显示 {plan.product_name} 价格为 {official_baseline.price_text}。"
+                ]
                 if official_baseline and official_baseline.price_text
                 else []
             ),
@@ -3243,16 +3691,20 @@ class CommerceDecisionFlow(BaseFlow):
 
         rumors_or_uncertain = [
             *([f"缺失证据：{item}" for item in missing_bits] if missing_bits else []),
-            *([f"暂不支持的指定来源：{item}" for item in unsupported_sources] if unsupported_sources else []),
+            *(
+                [f"暂不支持的指定来源：{item}" for item in unsupported_sources]
+                if unsupported_sources
+                else []
+            ),
             *[
                 (
                     f"当前 {item.platform} 报价指向 {item.metadata.get('series_signature') or item.title}，"
                     "和本轮主对齐配置不一致，不能直接并排比较。"
                     if item.metadata.get("quote_reason") == "series_scope_mismatch"
                     else (
-                        f"当前 {item.platform} 报价没有明确写出足够的配置字段，"
-                        "无法确认它是否和其它样本属于同一配置。"
-                        if item.metadata.get("quote_reason") == "series_scope_unresolved"
+                        f"当前 {item.platform} 报价没有明确写出足够的配置字段，" "无法确认它是否和其它样本属于同一配置。"
+                        if item.metadata.get("quote_reason")
+                        == "series_scope_unresolved"
                         else f"当前仅拿到 {item.platform} 的降级报价样本：{item.title} | {item.price.price_text or '价格待确认'}。"
                     )
                 )
@@ -3289,23 +3741,15 @@ class CommerceDecisionFlow(BaseFlow):
                 )
         for platform in planned_community_platforms:
             if platform not in collected_community_platforms:
-                source_notes.append(
-                    f"{platform} 当前没有拿到足够可信且与目标商品匹配的社区样本。"
-                )
+                source_notes.append(f"{platform} 当前没有拿到足够可信且与目标商品匹配的社区样本。")
         for platform in planned_editorial_platforms:
             if platform not in collected_editorial_platforms:
-                source_notes.append(
-                    f"{platform} 当前没有拿到足够可信且与目标商品匹配的专业评测或公开网页样本。"
-                )
+                source_notes.append(f"{platform} 当前没有拿到足够可信且与目标商品匹配的专业评测或公开网页样本。")
         for platform in planned_video_platforms:
             if platform not in collected_video_platforms:
-                source_notes.append(
-                    f"{platform} 当前没有拿到足够可信且与目标商品匹配的评测样本。"
-                )
+                source_notes.append(f"{platform} 当前没有拿到足够可信且与目标商品匹配的评测样本。")
         if unsupported_sources:
-            source_notes.append(
-                "未支持来源会被显式保留为缺口，而不是被系统静默替换成别的平台。"
-            )
+            source_notes.append("未支持来源会被显式保留为缺口，而不是被系统静默替换成别的平台。")
         if degraded_marketplace_items:
             if any(
                 item.metadata.get("quote_reason")
@@ -3316,13 +3760,9 @@ class CommerceDecisionFlow(BaseFlow):
                     "MacBook Pro 这类系列级商品在未限定尺寸或芯片时，会把未对齐配置的商城报价降级处理，避免把不同 SKU 混成一个结论。"
                 )
             else:
-                source_notes.append(
-                    "至少有一条商城报价属于降级匹配样本，例如翻新机、跨区版本或近似款，只能作为清晰标注的兜底参考。"
-                )
+                source_notes.append("至少有一条商城报价属于降级匹配样本，例如翻新机、跨区版本或近似款，只能作为清晰标注的兜底参考。")
         if degraded_marketplace_quotes and not marketplace_quotes:
-            source_notes.append(
-                "本轮没有拿到可直接横向比较的有效商城报价，现有价格样本仅用于提示市场区间，不应直接参与最终比价。"
-            )
+            source_notes.append("本轮没有拿到可直接横向比较的有效商城报价，现有价格样本仅用于提示市场区间，不应直接参与最终比价。")
         for platform in planned_marketplaces:
             platform_diagnostics = [
                 item
@@ -3476,10 +3916,7 @@ class CommerceDecisionFlow(BaseFlow):
                 f"已围绕 {plan.product_name} 完成跨平台价格、官方信息与社区口碑采样。"
                 "当前结果适合做初步购买决策，但仍建议以官方页和主流电商实时库存为准。"
             ),
-            "recommended_choice": (
-                "优先选择价格透明、卖家可信且社区负面反馈较少的平台；"
-                "若官方信息与社区爆料冲突，以官方为准。"
-            ),
+            "recommended_choice": ("优先选择价格透明、卖家可信且社区负面反馈较少的平台；" "若官方信息与社区爆料冲突，以官方为准。"),
             "confirmed_facts": confirmed[:5],
             "rumors_or_uncertain": rumors[:6],
             "review_highlights": review_highlights[:6],
@@ -3495,7 +3932,9 @@ class CommerceDecisionFlow(BaseFlow):
         evidence: List[EvidenceItem],
     ) -> List[str]:
         covered_price_platforms = {
-            item.platform for item in evidence if _is_stable_public_demo_price_item(item)
+            item.platform
+            for item in evidence
+            if _is_stable_public_demo_price_item(item)
         }
         has_apple_official_price = any(
             _is_stable_public_demo_official_price_item(item) for item in evidence
@@ -3613,10 +4052,12 @@ class CommerceDecisionFlow(BaseFlow):
         youtube_items = [
             item for item in evidence if _is_stable_public_demo_review_item(item)
         ]
-        youtube_item = youtube_items[0] if youtube_items else None
+        youtube_items[0] if youtube_items else None
         review_coverage_fact = _build_review_coverage_fact(youtube_items)
 
-        used_official_as_backup = bestbuy_price_item is None and apple_price_item is not None
+        used_official_as_backup = (
+            bestbuy_price_item is None and apple_price_item is not None
+        )
         amazon_is_renewed = bool(
             amazon_price_item
             and re.search(
@@ -3628,12 +4069,16 @@ class CommerceDecisionFlow(BaseFlow):
 
         apple_price_text = (
             apple_price_item.price.price_text
-            if apple_price_item and apple_price_item.price and apple_price_item.price.price_text
+            if apple_price_item
+            and apple_price_item.price
+            and apple_price_item.price.price_text
             else "the official Apple price"
         )
         amazon_price_text = (
             amazon_price_item.price.price_text
-            if amazon_price_item and amazon_price_item.price and amazon_price_item.price.price_text
+            if amazon_price_item
+            and amazon_price_item.price
+            and amazon_price_item.price.price_text
             else "the Amazon marketplace quote"
         )
 
@@ -3646,7 +4091,11 @@ class CommerceDecisionFlow(BaseFlow):
                 " Best Buy did not expose a comparable public price in this run, "
                 "so the Apple official buy page was used as the official baseline."
             )
-        elif bestbuy_price_item and bestbuy_price_item.price and bestbuy_price_item.price.price_text:
+        elif (
+            bestbuy_price_item
+            and bestbuy_price_item.price
+            and bestbuy_price_item.price.price_text
+        ):
             executive_summary += (
                 f" Best Buy also surfaced {bestbuy_price_item.price.price_text}, "
                 "allowing a direct marketplace comparison."
@@ -3670,24 +4119,26 @@ class CommerceDecisionFlow(BaseFlow):
             for fact in [
                 (
                     f"Apple.com buy page shows {plan.product_name} starting at {apple_price_item.price.price_text}."
-                    if apple_price_item and apple_price_item.price and apple_price_item.price.price_text
+                    if apple_price_item
+                    and apple_price_item.price
+                    and apple_price_item.price.price_text
                     else ""
                 ),
                 (
                     f"Amazon surfaced {amazon_price_item.title} at {amazon_price_item.price.price_text}."
-                    if amazon_price_item and amazon_price_item.price and amazon_price_item.price.price_text
+                    if amazon_price_item
+                    and amazon_price_item.price
+                    and amazon_price_item.price.price_text
                     else ""
                 ),
                 (
                     f"Best Buy surfaced {bestbuy_price_item.title} at {bestbuy_price_item.price.price_text}."
-                    if bestbuy_price_item and bestbuy_price_item.price and bestbuy_price_item.price.price_text
+                    if bestbuy_price_item
+                    and bestbuy_price_item.price
+                    and bestbuy_price_item.price.price_text
                     else ""
                 ),
-                (
-                    review_coverage_fact
-                    if review_coverage_fact
-                    else ""
-                ),
+                (review_coverage_fact if review_coverage_fact else ""),
             ]
             if fact
         ]

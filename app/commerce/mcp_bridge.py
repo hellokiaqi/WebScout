@@ -10,13 +10,30 @@ from app.commerce.models import CommerceTask, CommerceToolSchema
 from app.commerce.policy import detect_product_identity
 from app.config import config
 from app.logger import logger
-from app.tool.mcp import MCPClientTool, MCPClients
+from app.tool.mcp import MCPClients, MCPClientTool
 
 
 CATEGORY_TOOL_KEYWORDS = {
-    "pricing": ["price", "pricing", "offer", "deal", "catalog", "product", "search", "benchmark"],
+    "pricing": [
+        "price",
+        "pricing",
+        "offer",
+        "deal",
+        "catalog",
+        "product",
+        "search",
+        "benchmark",
+    ],
     "official": ["official", "spec", "specification", "product", "search"],
-    "reviews": ["review", "rating", "video", "community", "editorial", "professional", "search"],
+    "reviews": [
+        "review",
+        "rating",
+        "video",
+        "community",
+        "editorial",
+        "professional",
+        "search",
+    ],
     "social": ["social", "community", "reddit", "forum", "comment", "search"],
 }
 TOOL_PRIORITY_HINTS = {
@@ -222,7 +239,9 @@ class CommerceMCPBridge:
         if not observations and self.execution_profile != "product_compare_v2":
             observations.extend(await self._collect_playwright_official_snapshot(task))
         if not observations and self.execution_profile != "product_compare_v2":
-            observations.extend(await self._collect_playwright_marketplace_snapshot(task))
+            observations.extend(
+                await self._collect_playwright_marketplace_snapshot(task)
+            )
 
         return self._dedupe_observations(observations)
 
@@ -444,7 +463,11 @@ class CommerceMCPBridge:
                 continue
 
             metadata = {
-                **(item.get("metadata") if isinstance(item.get("metadata"), dict) else {}),
+                **(
+                    item.get("metadata")
+                    if isinstance(item.get("metadata"), dict)
+                    else {}
+                ),
                 "query": task.query,
                 "mcp_tool": tool.name,
                 "mcp_server": tool.server_id,
@@ -496,7 +519,9 @@ class CommerceMCPBridge:
             observation = {
                 "platform": str(item.get("platform") or task.platform),
                 "title": str(title or tool.original_name or tool.name),
-                "url": str(url or f"mcp://{tool.server_id}/{tool.original_name or tool.name}"),
+                "url": str(
+                    url or f"mcp://{tool.server_id}/{tool.original_name or tool.name}"
+                ),
                 "snippet": str(snippet or "")[:4000],
                 "extracted_text": str(extracted_text or "")[:4000],
                 "source_type": source_type,
@@ -541,7 +566,12 @@ class CommerceMCPBridge:
 
         if task.category == "pricing" and any(
             alias in haystack
-            for alias in ["search_engine", "scrape_as_markdown", "web_data_", "product_search"]
+            for alias in [
+                "search_engine",
+                "scrape_as_markdown",
+                "web_data_",
+                "product_search",
+            ]
         ):
             bonus += 6
         if task.category in {"reviews", "social"} and any(
@@ -552,8 +582,9 @@ class CommerceMCPBridge:
 
     @staticmethod
     def _is_playwright_browser_tool(tool: MCPClientTool) -> bool:
-        return PLAYWRIGHT_SERVER_HINT in tool.server_id.lower() and tool.original_name.startswith(
-            "browser_"
+        return (
+            PLAYWRIGHT_SERVER_HINT in tool.server_id.lower()
+            and tool.original_name.startswith("browser_")
         )
 
     async def _collect_playwright_official_snapshot(
@@ -587,7 +618,9 @@ class CommerceMCPBridge:
             except TimeoutError:
                 continue
             navigate_output = str(navigate_result.output or "")
-            if navigate_result.error or self._is_playwright_error_output(navigate_output):
+            if navigate_result.error or self._is_playwright_error_output(
+                navigate_output
+            ):
                 continue
 
             if wait_tool is not None:
@@ -607,7 +640,9 @@ class CommerceMCPBridge:
             except TimeoutError:
                 continue
             snapshot_output = str(snapshot_result.output or "")
-            if snapshot_result.error or self._is_playwright_error_output(snapshot_output):
+            if snapshot_result.error or self._is_playwright_error_output(
+                snapshot_output
+            ):
                 continue
 
             observation = self._build_playwright_snapshot_observation(
@@ -657,7 +692,9 @@ class CommerceMCPBridge:
                 )
                 continue
             navigate_output = str(navigate_result.output or "")
-            if navigate_result.error or self._is_playwright_error_output(navigate_output):
+            if navigate_result.error or self._is_playwright_error_output(
+                navigate_output
+            ):
                 self._append_diagnostic(
                     task=task,
                     reason="playwright_navigation_error",
@@ -687,7 +724,9 @@ class CommerceMCPBridge:
                 )
                 continue
             snapshot_output = str(snapshot_result.output or "")
-            if snapshot_result.error or self._is_playwright_error_output(snapshot_output):
+            if snapshot_result.error or self._is_playwright_error_output(
+                snapshot_output
+            ):
                 self._append_diagnostic(
                     task=task,
                     reason="playwright_snapshot_error",
@@ -695,8 +734,12 @@ class CommerceMCPBridge:
                 )
                 continue
 
-            page_url = self._playwright_page_field(snapshot_output, "Page URL") or target_url
-            blocked_reason = self._detect_playwright_snapshot_block_reason(snapshot_output)
+            page_url = (
+                self._playwright_page_field(snapshot_output, "Page URL") or target_url
+            )
+            blocked_reason = self._detect_playwright_snapshot_block_reason(
+                snapshot_output
+            )
             if blocked_reason:
                 self._append_diagnostic(
                     task=task,
@@ -742,13 +785,18 @@ class CommerceMCPBridge:
         candidates: List[tuple[int, str]] = []
         for match in PRICE_TEXT_RE.finditer(output):
             price_text = match.group(0)
-            context = output[max(0, match.start() - 120) : min(len(output), match.end() + 160)].lower()
+            context = output[
+                max(0, match.start() - 120) : min(len(output), match.end() + 160)
+            ].lower()
             score = 0
             if "from" in context or "starting at" in context:
                 score += 4
             if "trade-in" in context or "save up to" in context:
                 score -= 4
-            if any(token in context for token in ("per month", "/mo", "monthly", "installment")):
+            if any(
+                token in context
+                for token in ("per month", "/mo", "monthly", "installment")
+            ):
                 score -= 2
             candidates.append((score, price_text))
 
@@ -760,7 +808,9 @@ class CommerceMCPBridge:
 
     @staticmethod
     def _extract_playwright_snapshot_body(output: str) -> str:
-        match = re.search(r"### Snapshot\s+```yaml\n(?P<body>.*?)\n```", output, re.DOTALL)
+        match = re.search(
+            r"### Snapshot\s+```yaml\n(?P<body>.*?)\n```", output, re.DOTALL
+        )
         if match:
             return match.group("body")
         return output
@@ -922,7 +972,10 @@ class CommerceMCPBridge:
         fallback_url: str,
     ) -> Optional[Dict[str, object]]:
         page_url = self._playwright_page_field(output, "Page URL") or fallback_url
-        page_title = self._playwright_page_field(output, "Page Title") or f"{task.platform} page snapshot"
+        page_title = (
+            self._playwright_page_field(output, "Page Title")
+            or f"{task.platform} page snapshot"
+        )
         price_text = self._extract_preferred_price_text(output)
         if not price_text:
             return None
@@ -939,7 +992,10 @@ class CommerceMCPBridge:
                 "query": task.query,
                 "mcp_tool": "browser_snapshot",
                 "mcp_server": server_id,
-                "tool_input": {"url": fallback_url, "depth": PLAYWRIGHT_OFFICIAL_SNAPSHOT_DEPTH},
+                "tool_input": {
+                    "url": fallback_url,
+                    "depth": PLAYWRIGHT_OFFICIAL_SNAPSHOT_DEPTH,
+                },
                 "playwright_snapshot": True,
             },
         }
@@ -1133,7 +1189,9 @@ class CommerceMCPBridge:
         )
         if condition:
             lowered = condition.lower()
-            if any(token in lowered for token in ["renew", "refurb", "used", "pre-owned"]):
+            if any(
+                token in lowered for token in ["renew", "refurb", "used", "pre-owned"]
+            ):
                 metadata["offer_condition"] = "refurbished_or_renewed"
                 metadata.setdefault("quote_quality", "degraded_marketplace")
             elif source_type == "marketplace" and "new" in lowered:
@@ -1166,11 +1224,12 @@ class CommerceMCPBridge:
     def _seed_urls(task: CommerceTask) -> List[str]:
         identity = detect_product_identity(task.query)
         model_name = (identity.model_name or identity.family or "").strip()
-        keyword_text = " ".join(
-            part
-            for part in [identity.brand.strip(), model_name]
-            if part
-        ).strip() or task.query
+        keyword_text = (
+            " ".join(
+                part for part in [identity.brand.strip(), model_name] if part
+            ).strip()
+            or task.query
+        )
         keyword = quote_plus(keyword_text)
         product_slug = re.sub(r"[^a-z0-9]+", "-", model_name.lower()).strip("-")
         google_product_slug = re.sub(r"[^a-z0-9]+", "_", model_name.lower()).strip("_")

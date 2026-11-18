@@ -101,8 +101,12 @@ async def test_commerce_flow_generates_markdown_report(monkeypatch):
                 "executive_summary": "Evidence is sufficient for an initial buying recommendation.",
                 "recommended_choice": "Prefer the lower-priced listing with stable community sentiment.",
                 "confirmed_facts": ["Official spec page confirms the 512GB model."],
-                "rumors_or_uncertain": ["Launch-week stock volatility may affect price."],
-                "review_highlights": ["Reddit and YouTube both mention solid battery life."],
+                "rumors_or_uncertain": [
+                    "Launch-week stock volatility may affect price."
+                ],
+                "review_highlights": [
+                    "Reddit and YouTube both mention solid battery life."
+                ],
                 "source_notes": ["Official sources received the highest weight."],
                 "next_actions": ["Re-check the marketplace listing before checkout."],
             }
@@ -219,7 +223,9 @@ def test_product_compare_v2_community_filter_rejects_search_fallback_page():
 
 
 @pytest.mark.asyncio
-async def test_commerce_flow_uses_heuristic_plan_for_explicit_compare_prompt(monkeypatch):
+async def test_commerce_flow_uses_heuristic_plan_for_explicit_compare_prompt(
+    monkeypatch,
+):
     flow = CommerceDecisionFlow(agents={})
 
     async def should_not_run(*args, **kwargs):
@@ -247,9 +253,7 @@ async def test_commerce_flow_detects_domestic_platforms_in_heuristic_plan(monkey
 
     monkeypatch.setattr(flow.llm, "ask", should_not_run)
 
-    plan = await flow._create_plan(
-        "对比 iPhone 16 在京东和淘宝的价格，并总结小红书真实口碑"
-    )
+    plan = await flow._create_plan("对比 iPhone 16 在京东和淘宝的价格，并总结小红书真实口碑")
 
     assert plan.product_name == "iPhone 16"
     assert "JD" in plan.shopping_platforms
@@ -323,7 +327,9 @@ def test_derive_followup_tasks_requests_missing_pricing_platforms():
 
     followups = flow._derive_followup_tasks(plan, evidence)
 
-    pricing_platforms = {task.platform for task in followups if task.category == "pricing"}
+    pricing_platforms = {
+        task.platform for task in followups if task.category == "pricing"
+    }
     assert pricing_platforms == {"JD", "Taobao"}
 
 
@@ -502,8 +508,12 @@ async def test_stable_public_web_accepts_apple_official_price_as_second_price_so
                 "confirmed_facts": ["Apple confirms the official starting price."],
                 "rumors_or_uncertain": [],
                 "review_highlights": ["YouTube reviewers call the battery life solid."],
-                "source_notes": ["Apple official pricing substituted for a missing Best Buy surface."],
-                "next_actions": ["Check Best Buy again later if a second marketplace quote is required."],
+                "source_notes": [
+                    "Apple official pricing substituted for a missing Best Buy surface."
+                ],
+                "next_actions": [
+                    "Check Best Buy again later if a second marketplace quote is required."
+                ],
             }
         )
 
@@ -906,7 +916,9 @@ async def test_product_compare_v2_plan_scopes_series_macbook_to_comparable_basel
     assert pricing_tasks
     assert all("14-inch MacBook Pro M5" in task.query for task in pricing_tasks)
     assert all("代表型号" in task.goal for task in pricing_tasks)
-    assert not any(task.query.startswith("Apple MacBook Pro price") for task in pricing_tasks)
+    assert not any(
+        task.query.startswith("Apple MacBook Pro price") for task in pricing_tasks
+    )
     official_task = next(task for task in plan.tasks if task.source_role == "official")
     assert "Apple 14-inch MacBook Pro M5" in official_task.query
     assert "代表型号" in official_task.goal
@@ -924,7 +936,9 @@ async def test_product_compare_v2_plan_preserves_macbook_chip_suffix():
     assert plan.product_identity is not None
     assert plan.product_identity.model_name == "MacBook Pro M5"
     assert plan.tasks[0].query.startswith("Apple MacBook Pro M5 price Amazon")
-    assert plan.tasks[2].query.startswith("Apple MacBook Pro M5 official specifications buy")
+    assert plan.tasks[2].query.startswith(
+        "Apple MacBook Pro M5 official specifications buy"
+    )
 
 
 @pytest.mark.asyncio
@@ -961,8 +975,14 @@ async def test_product_compare_v2_plan_supports_requested_walmart_and_target_pri
     assert "Walmart" in plan.shopping_platforms
     assert "Target" in plan.shopping_platforms
     assert plan.unsupported_sources == []
-    assert any(task.platform == "Walmart" and task.source_role == "marketplace" for task in plan.tasks)
-    assert any(task.platform == "Target" and task.source_role == "marketplace" for task in plan.tasks)
+    assert any(
+        task.platform == "Walmart" and task.source_role == "marketplace"
+        for task in plan.tasks
+    )
+    assert any(
+        task.platform == "Target" and task.source_role == "marketplace"
+        for task in plan.tasks
+    )
 
 
 @pytest.mark.asyncio
@@ -1062,7 +1082,9 @@ async def test_product_compare_v2_followup_does_not_retry_attempted_marketplace(
         "Compare MacBook Pro prices on Amazon and Best Buy, then summarize YouTube and Reddit sentiment and confirm official specs."
     )
     completed_tasks = [
-        task for task in plan.tasks if task.platform == "Amazon" and task.source_role == "marketplace"
+        task
+        for task in plan.tasks
+        if task.platform == "Amazon" and task.source_role == "marketplace"
     ]
 
     followups = flow._derive_product_compare_v2_followup_tasks(
@@ -1146,10 +1168,14 @@ async def test_product_compare_v2_followup_suppresses_aggregate_failed_platform_
 
 
 @pytest.mark.asyncio
-async def test_product_compare_v2_report_marks_generic_macbook_cross_config_quotes_as_partial(monkeypatch):
+async def test_product_compare_v2_report_marks_generic_macbook_cross_config_quotes_as_partial(
+    monkeypatch,
+):
     flow = CommerceDecisionFlow(agents={}, execution_profile="product_compare_v2")
 
-    async def fake_summary(messages, system_msgs=None, stream=False, temperature=None, timeout=300):
+    async def fake_summary(
+        messages, system_msgs=None, stream=False, temperature=None, timeout=300
+    ):
         return json.dumps(
             {
                 "review_highlights": [
@@ -1276,10 +1302,14 @@ async def test_product_compare_v2_report_marks_generic_macbook_cross_config_quot
 
 
 @pytest.mark.asyncio
-async def test_product_compare_v2_report_keeps_generic_macbook_complete_when_marketplace_config_aligns(monkeypatch):
+async def test_product_compare_v2_report_keeps_generic_macbook_complete_when_marketplace_config_aligns(
+    monkeypatch,
+):
     flow = CommerceDecisionFlow(agents={}, execution_profile="product_compare_v2")
 
-    async def fake_summary(messages, system_msgs=None, stream=False, temperature=None, timeout=300):
+    async def fake_summary(
+        messages, system_msgs=None, stream=False, temperature=None, timeout=300
+    ):
         return json.dumps(
             {
                 "review_highlights": [
@@ -1386,12 +1416,17 @@ async def test_product_compare_v2_report_keeps_generic_macbook_complete_when_mar
 
     assert report.status == "complete"
     assert len(report.marketplace_quotes) == 2
-    assert any("代表型号" in item and "14-inch MacBook Pro M5" in item for item in report.source_notes)
+    assert any(
+        "代表型号" in item and "14-inch MacBook Pro M5" in item
+        for item in report.source_notes
+    )
     assert not any("同一配置的第二个有效商城报价" in item for item in report.rumors_or_uncertain)
 
 
 @pytest.mark.asyncio
-async def test_product_compare_v2_recommendation_only_names_missing_evidence(monkeypatch):
+async def test_product_compare_v2_recommendation_only_names_missing_evidence(
+    monkeypatch,
+):
     flow = CommerceDecisionFlow(agents={}, execution_profile="product_compare_v2")
 
     async def fake_review_highlights(*args, **kwargs):
@@ -1460,10 +1495,14 @@ async def test_product_compare_v2_recommendation_only_names_missing_evidence(mon
 
 
 @pytest.mark.asyncio
-async def test_product_compare_v2_complete_report_requires_marketplace_official_and_mixed_reviews(monkeypatch):
+async def test_product_compare_v2_complete_report_requires_marketplace_official_and_mixed_reviews(
+    monkeypatch,
+):
     flow = CommerceDecisionFlow(agents={}, execution_profile="product_compare_v2")
 
-    async def fake_summary(messages, system_msgs=None, stream=False, temperature=None, timeout=300):
+    async def fake_summary(
+        messages, system_msgs=None, stream=False, temperature=None, timeout=300
+    ):
         return json.dumps(
             {
                 "review_highlights": [
@@ -1587,7 +1626,9 @@ async def test_product_compare_v2_complete_report_requires_marketplace_official_
     assert report.official_baseline is not None
     assert len(report.marketplace_quotes) == 2
     assert report.official_baseline.platform == "store.google.com"
-    assert all(quote.platform != "store.google.com" for quote in report.marketplace_quotes)
+    assert all(
+        quote.platform != "store.google.com" for quote in report.marketplace_quotes
+    )
     assert any(item.startswith("核心卖点：") for item in report.review_highlights)
     assert len(report.review_highlights) >= 6
     markdown = report.to_markdown()
@@ -1639,10 +1680,14 @@ def test_product_compare_v2_marketplace_review_filter_accepts_public_review_sign
 
 
 @pytest.mark.asyncio
-async def test_product_compare_v2_complete_report_when_only_one_marketplace_was_requested(monkeypatch):
+async def test_product_compare_v2_complete_report_when_only_one_marketplace_was_requested(
+    monkeypatch,
+):
     flow = CommerceDecisionFlow(agents={}, execution_profile="product_compare_v2")
 
-    async def fake_summary(messages, system_msgs=None, stream=False, temperature=None, timeout=300):
+    async def fake_summary(
+        messages, system_msgs=None, stream=False, temperature=None, timeout=300
+    ):
         return json.dumps(
             {
                 "review_highlights": [
@@ -1735,10 +1780,14 @@ async def test_product_compare_v2_complete_report_when_only_one_marketplace_was_
 
 
 @pytest.mark.asyncio
-async def test_product_compare_v2_complete_report_flags_degraded_marketplace_quote(monkeypatch):
+async def test_product_compare_v2_complete_report_flags_degraded_marketplace_quote(
+    monkeypatch,
+):
     flow = CommerceDecisionFlow(agents={}, execution_profile="product_compare_v2")
 
-    async def fake_summary(messages, system_msgs=None, stream=False, temperature=None, timeout=300):
+    async def fake_summary(
+        messages, system_msgs=None, stream=False, temperature=None, timeout=300
+    ):
         return json.dumps(
             {
                 "review_highlights": [
@@ -1858,10 +1907,14 @@ async def test_product_compare_v2_complete_report_flags_degraded_marketplace_quo
 
 
 @pytest.mark.asyncio
-async def test_product_compare_v2_report_does_not_count_degraded_only_marketplace_as_valid(monkeypatch):
+async def test_product_compare_v2_report_does_not_count_degraded_only_marketplace_as_valid(
+    monkeypatch,
+):
     flow = CommerceDecisionFlow(agents={}, execution_profile="product_compare_v2")
 
-    async def fake_summary(messages, system_msgs=None, stream=False, temperature=None, timeout=300):
+    async def fake_summary(
+        messages, system_msgs=None, stream=False, temperature=None, timeout=300
+    ):
         return json.dumps(
             {
                 "review_highlights": [

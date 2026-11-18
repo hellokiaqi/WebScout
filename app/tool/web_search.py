@@ -512,8 +512,9 @@ class WebSearch(BaseTool):
 
     def _should_resolve_redirect(self, url: str) -> bool:
         parsed = urlparse(url)
-        return parsed.netloc.lower() in self._redirect_result_hosts and parsed.path.startswith(
-            "/link"
+        return (
+            parsed.netloc.lower() in self._redirect_result_hosts
+            and parsed.path.startswith("/link")
         )
 
     def _resolve_redirect_url(self, url: str) -> Optional[str]:

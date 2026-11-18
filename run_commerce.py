@@ -79,9 +79,7 @@ async def main():
         prompt = args.prompt
     elif execution_profile == "stable_public_web":
         prompt = DEFAULT_STABLE_PUBLIC_WEB_PROMPT
-        logger.warning(
-            "No prompt provided. Using the stable public web demo prompt."
-        )
+        logger.warning("No prompt provided. Using the stable public web demo prompt.")
     else:
         prompt = input("Enter your commerce request: ")
     if not prompt.strip():
@@ -104,9 +102,7 @@ async def main():
                 flow.execute(prompt), timeout=args.timeout_seconds
             )
     except asyncio.TimeoutError:
-        logger.error(
-            f"Commerce flow timed out after {args.timeout_seconds} seconds."
-        )
+        logger.error(f"Commerce flow timed out after {args.timeout_seconds} seconds.")
         return
 
     print(result)

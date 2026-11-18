@@ -3,22 +3,20 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.commerce.mcp_bridge import CommerceMCPBridge
-from app.commerce.policy import detect_product_identity, extract_product_configuration
 from app.commerce.executor import (
-    CommerceResearchExecutor,
     DIRECT_COLLECTION_TIMEOUT_SECONDS,
     HIGH_ANTI_BOT_PLATFORMS,
-    MCP_COLLECTION_TIMEOUT_SECONDS,
     PRODUCT_COMPARE_V2_EDITORIAL_COLLECTION_TIMEOUT_SECONDS,
     PRODUCT_COMPARE_V2_MARKETPLACE_MCP_COLLECTION_TIMEOUT_SECONDS,
     PRODUCT_COMPARE_V2_PROFILE,
     SESSION_PREFERRED_PLATFORMS,
+    CommerceResearchExecutor,
+    build_model_match_text,
     build_platform_fallback_results,
     build_search_overrides,
-    build_search_query,
     build_search_queries,
-    build_model_match_text,
+    build_search_query,
+    compute_model_match_score,
     detect_blocked_reason,
     detect_unusable_price_reason,
     get_direct_collection_timeout_seconds,
@@ -27,54 +25,54 @@ from app.commerce.executor import (
     infer_platform_domain,
     is_blank_browser_state,
     is_official_product_page,
-    is_search_results_page,
     is_search_result_usable,
+    is_search_results_page,
     parse_price,
-    compute_model_match_score,
     score_source,
+    should_attempt_visual_price_recovery,
     should_browser_enrich_search_result,
     should_collect_mcp,
     should_continue_collecting_marketplace_evidence,
-    should_attempt_visual_price_recovery,
     should_prefer_direct_platform_fallback,
     should_retry_via_session,
     should_use_session_browser_for_task,
     should_use_state_only_enrichment,
 )
-from app.commerce.models import CommerceTask
-from app.commerce.models import EvidenceItem, PriceObservation
+from app.commerce.mcp_bridge import CommerceMCPBridge
+from app.commerce.models import CommerceTask, EvidenceItem, PriceObservation
+from app.commerce.policy import detect_product_identity, extract_product_configuration
 from app.config import config
 from app.mcp import commerce_public_server
 from app.mcp.commerce_public_server import (
+    PriceBenchmarkSearchTool,
+    RedditCommunityReviewSearchTool,
+    YouTubeVideoReviewSearchTool,
     _clean_product_query,
     _collect_editorial_review_observations,
     _collect_marketplace_observations,
     _collect_marketplace_review_observations,
     _collect_reddit_review_observations,
     _collect_youtube_review_observations,
-    _extract_apple_official_price_from_html,
+    _editorial_review_queries,
     _extract_amazon_mirror_observations,
+    _extract_apple_official_price_from_html,
     _extract_best_apple_price,
     _extract_bestbuy_mirror_observations,
     _extract_duckduckgo_html_results,
     _extract_google_official_price_from_html,
-    _extract_marketplace_review_observations_from_text,
     _extract_marketplace_mirror_observations,
+    _extract_marketplace_review_observations_from_text,
     _extract_reddit_feed_observations_from_text,
-    _extract_startpage_html_results,
     _extract_samsung_official_price_from_html,
-    _extract_youtube_mirror_observations,
+    _extract_startpage_html_results,
     _extract_walmart_mirror_observations,
-    _editorial_review_queries,
+    _extract_youtube_mirror_observations,
     _is_editorial_review_result,
-    _matches_product_hint,
     _marketplace_direct_keyword,
-    _marketplace_search_query,
     _marketplace_search_keyword,
+    _marketplace_search_query,
+    _matches_product_hint,
     _official_urls,
-    PriceBenchmarkSearchTool,
-    RedditCommunityReviewSearchTool,
-    YouTubeVideoReviewSearchTool,
 )
 from app.tool.web_search import SearchResult, WebSearch
 
@@ -286,7 +284,10 @@ def test_build_platform_fallback_results_adds_samsung_buy_url():
     results = build_platform_fallback_results(task)
 
     assert results
-    assert results[0].url == "https://www.samsung.com/us/smartphones/samsung-galaxy-s25/buy/"
+    assert (
+        results[0].url
+        == "https://www.samsung.com/us/smartphones/samsung-galaxy-s25/buy/"
+    )
 
 
 def test_web_search_prefers_global_engines_for_english_marketplace_queries(monkeypatch):
@@ -364,8 +365,7 @@ def test_product_compare_v2_search_queries_preserve_pixel_model():
     queries = build_search_queries(task)
 
     assert any(
-        "Google Pixel 9" in query or '"Google Pixel 9"' in query
-        for query in queries
+        "Google Pixel 9" in query or '"Google Pixel 9"' in query for query in queries
     )
     assert all("Compare price" not in query for query in queries)
 
@@ -496,8 +496,12 @@ def test_marketplace_search_query_uses_quoted_product_for_web_search_fallback():
 
 
 def test_official_urls_prefer_google_config_and_samsung_buy_pages():
-    google_urls = _official_urls("Google Pixel 9 official specifications buy", "store.google.com")
-    samsung_urls = _official_urls("Samsung Galaxy S25 official specifications buy", "Samsung.com")
+    google_urls = _official_urls(
+        "Google Pixel 9 official specifications buy", "store.google.com"
+    )
+    samsung_urls = _official_urls(
+        "Samsung Galaxy S25 official specifications buy", "Samsung.com"
+    )
 
     assert google_urls[0] == "https://store.google.com/us/config/pixel_9?hl=en-US"
     assert samsung_urls[0] == "https://www.samsung.com/us/smartphones/galaxy-s25/buy/"
@@ -514,9 +518,7 @@ def test_stable_public_web_uses_state_only_enrichment_for_youtube():
     assert should_use_state_only_enrichment(
         task, "stable_public_web", "platform_fallback"
     )
-    assert not should_use_state_only_enrichment(
-        task, "default", "platform_fallback"
-    )
+    assert not should_use_state_only_enrichment(task, "default", "platform_fallback")
 
 
 def test_stable_public_web_only_uses_mcp_for_pricing_and_review_tasks():
@@ -770,14 +772,20 @@ def test_compute_model_match_score_rejects_wrong_generation_and_variant_mix():
         goal="collect price",
         source_role="marketplace",
     )
-    assert compute_model_match_score(
-        base_task,
-        "Google - Pixel 10 256GB (Unlocked) - Lemongrass",
-    ) < 60
-    assert compute_model_match_score(
-        base_task,
-        "Google - Pixel 9 Pro 128GB (Unlocked) - Obsidian",
-    ) < 60
+    assert (
+        compute_model_match_score(
+            base_task,
+            "Google - Pixel 10 256GB (Unlocked) - Lemongrass",
+        )
+        < 60
+    )
+    assert (
+        compute_model_match_score(
+            base_task,
+            "Google - Pixel 9 Pro 128GB (Unlocked) - Obsidian",
+        )
+        < 60
+    )
 
 
 def test_compute_model_match_score_rejects_letter_suffix_variant_mix():
@@ -789,10 +797,13 @@ def test_compute_model_match_score_rejects_letter_suffix_variant_mix():
         source_role="marketplace",
     )
 
-    assert compute_model_match_score(
-        base_task,
-        "Google - Pixel 9a 128GB (Unlocked) - Obsidian",
-    ) < 60
+    assert (
+        compute_model_match_score(
+            base_task,
+            "Google - Pixel 9a 128GB (Unlocked) - Obsidian",
+        )
+        < 60
+    )
 
 
 def test_detect_product_identity_does_not_treat_pros_cons_as_pro_variant():
@@ -1103,7 +1114,10 @@ Add $329 99 current price $329.99
     )
 
     assert observations
-    assert observations[0]["title"] == "Ninja CREAMi Deluxe 11-in-1 Ice Cream & Frozen Treat Maker $329.99"
+    assert (
+        observations[0]["title"]
+        == "Ninja CREAMi Deluxe 11-in-1 Ice Cream & Frozen Treat Maker $329.99"
+    )
     assert observations[0]["price"]["price_text"] == "$329.99"
 
 
@@ -1213,7 +1227,9 @@ $199.00
 
 
 @pytest.mark.asyncio
-async def test_price_benchmark_search_collects_extended_public_marketplaces(monkeypatch):
+async def test_price_benchmark_search_collects_extended_public_marketplaces(
+    monkeypatch,
+):
     called_platforms = []
 
     async def fake_marketplace_collect(
@@ -1458,7 +1474,9 @@ async def test_marketplace_review_collection_strips_customer_terms_for_generic_p
         ]
 
     async def fail_fetch(*args, **kwargs):
-        raise AssertionError("rating signal should be reused from the public price card")
+        raise AssertionError(
+            "rating signal should be reused from the public price card"
+        )
 
     monkeypatch.setattr(
         commerce_public_server,
@@ -1532,7 +1550,9 @@ async def test_marketplace_review_collection_uses_public_search_snippets_for_ama
     async def fake_collect_marketplace(*args, **kwargs):
         return []
 
-    async def fake_execute_search(query: str, *, num_results: int, lang: str, country: str):
+    async def fake_execute_search(
+        query: str, *, num_results: int, lang: str, country: str
+    ):
         return [
             SearchResult(
                 position=1,
@@ -1669,7 +1689,9 @@ async def test_marketplace_review_collection_supports_extra_public_retailers(
     async def fake_collect_marketplace(*args, **kwargs):
         return []
 
-    async def fake_execute_search(query: str, *, num_results: int, lang: str, country: str):
+    async def fake_execute_search(
+        query: str, *, num_results: int, lang: str, country: str
+    ):
         return [
             SearchResult(
                 position=1,
@@ -2102,7 +2124,9 @@ Price, product page[$539.99](https://www.amazon.com/Apple-iPhone-16-Version-128G
     assert len(observations) == 1
     assert observations[0]["platform"] == "Amazon"
     assert observations[0]["price"]["amount"] == 568.26
-    assert observations[0]["url"].startswith("https://www.amazon.com/Apple-iPhone-16-Version-Ultramarine")
+    assert observations[0]["url"].startswith(
+        "https://www.amazon.com/Apple-iPhone-16-Version-Ultramarine"
+    )
 
 
 def test_amazon_mirror_parser_filters_irrelevant_cheap_lookalikes():
@@ -2275,7 +2299,10 @@ FREE delivery Fri, Apr 24
     )
 
     assert len(observations) == 1
-    assert observations[0]["title"] == "Google Pixel 9 - Google Pixel Gemini Smartphone Incredible"
+    assert (
+        observations[0]["title"]
+        == "Google Pixel 9 - Google Pixel Gemini Smartphone Incredible"
+    )
     assert observations[0]["price"]["title"] == observations[0]["title"]
 
 
@@ -2328,7 +2355,9 @@ Price, product page[$1,349.00](https://www.amazon.com/Apple-MacBook-10-core-14-2
 FREE delivery Apr 24 - 27
     """
 
-    async def fake_fetch_public_mirror_text(url: str, timeout_seconds: int | None = None):
+    async def fake_fetch_public_mirror_text(
+        url: str, timeout_seconds: int | None = None
+    ):
         return text
 
     monkeypatch.setattr(
@@ -2505,7 +2534,7 @@ async def test_reddit_review_collection_uses_global_search_json_before_web_searc
                                 "score": 43,
                                 "num_comments": 19,
                             }
-                        }
+                        },
                     ]
                 }
             }
@@ -2632,7 +2661,9 @@ async def test_stable_executor_prefers_direct_public_collectors(monkeypatch):
         ]
 
     async def should_not_run(*args, **kwargs):
-        raise AssertionError("fallback collection should not run when direct sources succeed")
+        raise AssertionError(
+            "fallback collection should not run when direct sources succeed"
+        )
 
     monkeypatch.setattr(
         "app.commerce.executor._collect_marketplace_observations",
@@ -2729,7 +2760,10 @@ async def test_product_compare_v2_marketplace_review_direct_collection(monkeypat
                 "snippet": "Rating 4.6 out of 5 stars. Customers praise the camera.",
                 "source_type": "marketplace",
                 "credibility": 0.84,
-                "metadata": {"mcp_kind": "reviews", "strategy": "marketplace_review_page"},
+                "metadata": {
+                    "mcp_kind": "reviews",
+                    "strategy": "marketplace_review_page",
+                },
             }
         ]
 
@@ -2773,7 +2807,9 @@ def test_product_compare_v2_skips_public_browser_enrichment_for_marketplace_fall
 
 
 @pytest.mark.asyncio
-async def test_google_official_collection_uses_raw_html_before_browser_fetch(monkeypatch):
+async def test_google_official_collection_uses_raw_html_before_browser_fetch(
+    monkeypatch,
+):
     url = "https://store.google.com/us/config/pixel_9?hl=en-US"
 
     monkeypatch.setattr(
@@ -2783,7 +2819,9 @@ async def test_google_official_collection_uses_raw_html_before_browser_fetch(mon
     )
 
     async def fail_page_text(url_arg: str):
-        raise AssertionError("Google Store official collection should avoid browser-backed text fetch")
+        raise AssertionError(
+            "Google Store official collection should avoid browser-backed text fetch"
+        )
 
     async def fake_raw_html(url_arg: str, timeout_seconds: int | None = None):
         assert url_arg == url
@@ -2798,7 +2836,9 @@ async def test_google_official_collection_uses_raw_html_before_browser_fetch(mon
 
     monkeypatch.setattr(commerce_public_server, "_fetch_page_text", fail_page_text)
     monkeypatch.setattr(commerce_public_server, "_fetch_raw_html", fake_raw_html)
-    monkeypatch.setattr(commerce_public_server, "_fetch_public_mirror_text", empty_mirror_text)
+    monkeypatch.setattr(
+        commerce_public_server, "_fetch_public_mirror_text", empty_mirror_text
+    )
 
     observations = await commerce_public_server._collect_official_observations(
         "Google Pixel 9 official specifications buy",
@@ -2811,7 +2851,9 @@ async def test_google_official_collection_uses_raw_html_before_browser_fetch(mon
 
 
 @pytest.mark.asyncio
-async def test_google_official_collection_does_not_search_when_public_sources_fail(monkeypatch):
+async def test_google_official_collection_does_not_search_when_public_sources_fail(
+    monkeypatch,
+):
     url = "https://store.google.com/us/config/pixel_9?hl=en-US"
 
     monkeypatch.setattr(
@@ -2827,13 +2869,19 @@ async def test_google_official_collection_does_not_search_when_public_sources_fa
         return ""
 
     async def fail_search(*args, **kwargs):
-        raise AssertionError("Google Store official public-only collection should not fall back to web search")
+        raise AssertionError(
+            "Google Store official public-only collection should not fall back to web search"
+        )
 
     async def fail_page_text(url_arg: str):
-        raise AssertionError("Google Store official public-only collection should not use browser-backed text fetch")
+        raise AssertionError(
+            "Google Store official public-only collection should not use browser-backed text fetch"
+        )
 
     monkeypatch.setattr(commerce_public_server, "_fetch_raw_html", empty_raw_html)
-    monkeypatch.setattr(commerce_public_server, "_fetch_public_mirror_text", empty_mirror_text)
+    monkeypatch.setattr(
+        commerce_public_server, "_fetch_public_mirror_text", empty_mirror_text
+    )
     monkeypatch.setattr(commerce_public_server, "_fetch_page_text", fail_page_text)
     monkeypatch.setattr(commerce_public_server, "_execute_search", fail_search)
 
@@ -2853,7 +2901,9 @@ async def test_marketplace_search_fallback_recovers_price_from_search_snippet_wh
     async def fake_fetch_public_mirror_text(url: str):
         return ""
 
-    async def fake_execute_search(query: str, *, num_results: int, lang: str = "en", country: str = "us"):
+    async def fake_execute_search(
+        query: str, *, num_results: int, lang: str = "en", country: str = "us"
+    ):
         return [
             SearchResult(
                 position=1,
@@ -3019,7 +3069,9 @@ async def test_web_search_skips_results_that_ignore_site_constraint(monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_price_benchmark_tool_ranks_official_and_bestbuy_before_weaker_sources(monkeypatch):
+async def test_price_benchmark_tool_ranks_official_and_bestbuy_before_weaker_sources(
+    monkeypatch,
+):
     async def fake_collect_marketplace(
         query: str,
         *,
@@ -3067,7 +3119,9 @@ async def test_price_benchmark_tool_ranks_official_and_bestbuy_before_weaker_sou
         }
         return payload[platform][:max_results]
 
-    async def fake_collect_official(query: str, *, platform: str = "Apple.com", max_results: int = 1):
+    async def fake_collect_official(
+        query: str, *, platform: str = "Apple.com", max_results: int = 1
+    ):
         return [
             {
                 "platform": "Apple.com",
@@ -3101,7 +3155,8 @@ async def test_price_benchmark_tool_ranks_official_and_bestbuy_before_weaker_sou
         "Best Buy",
     ]
     assert all(
-        item["platform"] not in {"Amazon", "Walmart"} for item in payload["observations"]
+        item["platform"] not in {"Amazon", "Walmart"}
+        for item in payload["observations"]
     )
 
 
@@ -3156,7 +3211,10 @@ async def test_reddit_review_tool_returns_community_observations(monkeypatch):
                 "snippet": "Owners discuss battery and camera tradeoffs.",
                 "source_type": "community",
                 "credibility": 0.78,
-                "metadata": {"strategy": "search_result_page", "subreddit": "GooglePixel"},
+                "metadata": {
+                    "strategy": "search_result_page",
+                    "subreddit": "GooglePixel",
+                },
             }
         ][:max_results]
 
@@ -3305,7 +3363,9 @@ async def test_youtube_collection_backfills_search_when_mirror_is_sparse(monkeyp
 Camera, battery, and value discussion.
 """
 
-    async def fake_execute_search(query: str, *, num_results: int, lang: str, country: str):
+    async def fake_execute_search(
+        query: str, *, num_results: int, lang: str, country: str
+    ):
         return [
             SearchResult(
                 position=1,
@@ -3343,7 +3403,9 @@ Camera, battery, and value discussion.
 
 
 @pytest.mark.asyncio
-async def test_youtube_collection_returns_mirror_batch_without_slow_backfill(monkeypatch):
+async def test_youtube_collection_returns_mirror_batch_without_slow_backfill(
+    monkeypatch,
+):
     async def fake_fetch_public_mirror_text(url: str, *args, **kwargs):
         return "\n".join(
             [
@@ -3363,7 +3425,9 @@ async def test_youtube_collection_returns_mirror_batch_without_slow_backfill(mon
         lang: str,
         country: str,
     ):
-        raise AssertionError("slow web search should not run after a useful mirror batch")
+        raise AssertionError(
+            "slow web search should not run after a useful mirror batch"
+        )
 
     monkeypatch.setattr(
         commerce_public_server,
@@ -3429,7 +3493,9 @@ async def test_reddit_collection_uses_subreddit_search_json(monkeypatch):
             }
         )
 
-    async def fake_execute_search(query: str, *, num_results: int, lang: str, country: str):
+    async def fake_execute_search(
+        query: str, *, num_results: int, lang: str, country: str
+    ):
         return []
 
     monkeypatch.setattr(
@@ -3443,7 +3509,9 @@ async def test_reddit_collection_uses_subreddit_search_json(monkeypatch):
         fake_fetch_page_text,
         raising=False,
     )
-    monkeypatch.setattr(commerce_public_server, "_fetch_page_text", fake_fetch_page_text)
+    monkeypatch.setattr(
+        commerce_public_server, "_fetch_page_text", fake_fetch_page_text
+    )
     monkeypatch.setattr(commerce_public_server, "_execute_search", fake_execute_search)
 
     observations = await _collect_reddit_review_observations(
@@ -3458,7 +3526,9 @@ async def test_reddit_collection_uses_subreddit_search_json(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_reddit_collection_returns_structured_batch_without_slow_search(monkeypatch):
+async def test_reddit_collection_returns_structured_batch_without_slow_search(
+    monkeypatch,
+):
     async def fake_collect_reddit_feed_observations(
         query: str,
         product_hint: str,
@@ -3493,7 +3563,9 @@ async def test_reddit_collection_returns_structured_batch_without_slow_search(mo
         lang: str,
         country: str,
     ):
-        raise AssertionError("slow web search should not run after a useful reddit batch")
+        raise AssertionError(
+            "slow web search should not run after a useful reddit batch"
+        )
 
     monkeypatch.setattr(
         commerce_public_server,
@@ -3559,10 +3631,12 @@ async def test_reddit_json_collection_uses_direct_public_fetcher(monkeypatch):
         raising=False,
     )
 
-    observations = await commerce_public_server._collect_reddit_search_json_observations(
-        "Pixel 9 Reddit long term review complaints",
-        "Pixel 9",
-        max_results=3,
+    observations = (
+        await commerce_public_server._collect_reddit_search_json_observations(
+            "Pixel 9 Reddit long term review complaints",
+            "Pixel 9",
+            max_results=3,
+        )
     )
 
     assert len(observations) == 1
@@ -3703,7 +3777,9 @@ async def test_product_compare_v2_executor_continues_official_fallback_after_unp
 
 
 @pytest.mark.asyncio
-async def test_product_compare_v2_executor_drops_model_mismatch_from_direct_source(monkeypatch):
+async def test_product_compare_v2_executor_drops_model_mismatch_from_direct_source(
+    monkeypatch,
+):
     executor = CommerceResearchExecutor(execution_profile="product_compare_v2")
     task = CommerceTask(
         category="pricing",
@@ -3748,11 +3824,14 @@ async def test_product_compare_v2_executor_drops_model_mismatch_from_direct_sour
         "app.commerce.executor._collect_marketplace_observations",
         fake_collect_marketplace,
     )
+
     async def empty_search(*args, **kwargs):
         return SimpleNamespace(results=[])
 
     monkeypatch.setattr(type(executor.web_search), "execute", empty_search)
-    monkeypatch.setattr("app.commerce.executor.build_platform_fallback_results", lambda task: [])
+    monkeypatch.setattr(
+        "app.commerce.executor.build_platform_fallback_results", lambda task: []
+    )
     monkeypatch.setattr(executor.mcp_bridge, "collect", empty_collect)
 
     evidence = await executor.execute_task(task)
@@ -3927,7 +4006,9 @@ def test_startpage_html_editorial_fallback_extracts_result_links_and_snippets():
 
 @pytest.mark.asyncio
 async def test_editorial_review_collection_builds_media_observations(monkeypatch):
-    async def fake_execute_search(query: str, *, num_results: int, lang: str = "en", country: str = "us"):
+    async def fake_execute_search(
+        query: str, *, num_results: int, lang: str = "en", country: str = "us"
+    ):
         assert "Pixel 9" in query
         return [
             SearchResult(
@@ -3971,7 +4052,9 @@ async def test_editorial_review_collection_limits_slow_searches(monkeypatch):
     async def fake_fetch_page_text(url: str):
         return ""
 
-    async def fake_execute_search(query: str, *, num_results: int, lang: str = "en", country: str = "us"):
+    async def fake_execute_search(
+        query: str, *, num_results: int, lang: str = "en", country: str = "us"
+    ):
         calls.append(query)
         return []
 
@@ -4004,7 +4087,9 @@ async def test_editorial_review_collection_uses_direct_url_candidates(monkeypatc
         return ""
 
     async def should_not_search(*args, **kwargs):
-        raise AssertionError("direct editorial URL candidate should satisfy max_results=1")
+        raise AssertionError(
+            "direct editorial URL candidate should satisfy max_results=1"
+        )
 
     monkeypatch.setattr(
         "app.mcp.commerce_public_server._fetch_page_text",
@@ -4026,7 +4111,9 @@ async def test_editorial_review_collection_uses_direct_url_candidates(monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_editorial_review_collection_rejects_direct_url_not_found_pages(monkeypatch):
+async def test_editorial_review_collection_rejects_direct_url_not_found_pages(
+    monkeypatch,
+):
     async def fake_fetch_page_text(url: str):
         return "Page not found Expert Reviews We're sorry this page no longer exists."
 
@@ -4090,7 +4177,9 @@ def test_product_compare_v2_accepts_walmart_generic_product_search_price():
 
 
 @pytest.mark.asyncio
-async def test_product_compare_v2_executor_drops_search_result_fragment_price(monkeypatch):
+async def test_product_compare_v2_executor_drops_search_result_fragment_price(
+    monkeypatch,
+):
     executor = CommerceResearchExecutor(execution_profile="product_compare_v2")
     task = CommerceTask(
         category="pricing",

@@ -351,16 +351,37 @@ def score_source(url: str) -> tuple[str, float]:
         token in domain for token in ["official", "tsmc.com"]
     ):
         return "official", 0.95
-    if any(token in domain for token in ["amazon.", "walmart.", "bestbuy.", "jd.", "tmall.", "taobao."]):
+    if any(
+        token in domain
+        for token in ["amazon.", "walmart.", "bestbuy.", "jd.", "tmall.", "taobao."]
+    ):
         return "marketplace", 0.85
-    if any(token in domain for token in ["reddit.", "weibo.", "xiaohongshu.", "bilibili.", "youtube."]):
+    if any(
+        token in domain
+        for token in ["reddit.", "weibo.", "xiaohongshu.", "bilibili.", "youtube."]
+    ):
         return "community", 0.72
-    if any(token in domain for token in ["it之家", "ithome", "macrumors", "9to5mac", "theverge", "techradar", "163.", "qq.com", "sina."]):
+    if any(
+        token in domain
+        for token in [
+            "it之家",
+            "ithome",
+            "macrumors",
+            "9to5mac",
+            "theverge",
+            "techradar",
+            "163.",
+            "qq.com",
+            "sina.",
+        ]
+    ):
         return "media", 0.78
     return "unknown", 0.55
 
 
-def parse_price(text: str, platform: str, title: str, url: str) -> Optional[PriceObservation]:
+def parse_price(
+    text: str, platform: str, title: str, url: str
+) -> Optional[PriceObservation]:
     match = PRICE_RE.search(text or "")
     if not match:
         return None
@@ -433,7 +454,9 @@ def _derive_search_keyword(task: CommerceTask) -> str:
         "优缺点",
         "体验",
     }
-    for token in sorted((token for token in removable_tokens if token), key=len, reverse=True):
+    for token in sorted(
+        (token for token in removable_tokens if token), key=len, reverse=True
+    ):
         escaped = re.escape(token)
         if re.search(r"[a-zA-Z0-9]", token):
             pattern = rf"(?<![a-zA-Z0-9]){escaped}(?![a-zA-Z0-9])"
@@ -469,7 +492,9 @@ def build_search_query(task: CommerceTask) -> str:
     if alias and alias.lower() not in query.lower():
         query = f"{query} {alias}".strip()
 
-    is_chinese_context = bool(re.search(r"[\u4e00-\u9fff]", query)) or domain in CHINESE_PLATFORM_DOMAINS
+    is_chinese_context = (
+        bool(re.search(r"[\u4e00-\u9fff]", query)) or domain in CHINESE_PLATFORM_DOMAINS
+    )
 
     if task.category == "pricing":
         if is_chinese_context:
@@ -516,7 +541,9 @@ def build_search_query(task: CommerceTask) -> str:
         else:
             query = append_terms(query, ["official", "specifications", "launch"])
             query = append_terms(
-                query, ["community", "forum", "forums", "developer", "support", "trade-in"], negative=True
+                query,
+                ["community", "forum", "forums", "developer", "support", "trade-in"],
+                negative=True,
             )
     else:
         if is_chinese_context:
@@ -527,7 +554,9 @@ def build_search_query(task: CommerceTask) -> str:
                 query,
                 ["real user reviews", "long term", "pros", "cons", "complaints"],
             )
-            query = append_terms(query, ["official", "specifications", "price"], negative=True)
+            query = append_terms(
+                query, ["official", "specifications", "price"], negative=True
+            )
 
     if domain and f"site:{domain}" not in query.lower():
         query = f"site:{domain} {query}"
@@ -542,7 +571,9 @@ def build_search_queries(task: CommerceTask) -> List[str]:
         identity = detect_product_identity(task.query)
         if identity.brand and keyword and identity.brand.lower() not in keyword.lower():
             keyword = f"{identity.brand} {keyword}".strip()
-        platform_label = PLATFORM_QUERY_ALIASES.get(task.platform, task.platform).strip()
+        platform_label = PLATFORM_QUERY_ALIASES.get(
+            task.platform, task.platform
+        ).strip()
         broad_terms: List[str] = []
         if keyword:
             broad_terms.append(f'"{keyword}"')
@@ -552,10 +583,13 @@ def build_search_queries(task: CommerceTask) -> List[str]:
             )
 
         lowered_query = task.query.lower()
-        if any(
-            token in lowered_query
-            for token in ("iphone", "galaxy", "pixel", "smartphone", "phone")
-        ) and "unlocked" not in lowered_query:
+        if (
+            any(
+                token in lowered_query
+                for token in ("iphone", "galaxy", "pixel", "smartphone", "phone")
+            )
+            and "unlocked" not in lowered_query
+        ):
             broad_terms.append("unlocked")
         if "new" not in lowered_query:
             broad_terms.append("new")
@@ -584,7 +618,9 @@ def build_platform_fallback_results(task: CommerceTask) -> List[SearchResult]:
 
     keyword = quote_plus(_derive_search_keyword(task))
     product_slug = slugify_product_name(_derive_search_keyword(task))
-    google_product_slug = slugify_google_store_product_name(_derive_search_keyword(task))
+    google_product_slug = slugify_google_store_product_name(
+        _derive_search_keyword(task)
+    )
     urls = {
         "amazon.com": [f"https://www.amazon.com/s?k={keyword}"],
         "bestbuy.com": [f"https://www.bestbuy.com/site/searchpage.jsp?st={keyword}"],
@@ -592,29 +628,43 @@ def build_platform_fallback_results(task: CommerceTask) -> List[SearchResult]:
         "jd.com": [f"https://search.jd.com/Search?keyword={keyword}"],
         "taobao.com": [f"https://s.taobao.com/search?q={keyword}"],
         "tmall.com": [f"https://list.tmall.com/search_product.htm?q={keyword}"],
-        "pinduoduo.com": [f"https://mobile.yangkeduo.com/search_result.html?search_key={keyword}"],
+        "pinduoduo.com": [
+            f"https://mobile.yangkeduo.com/search_result.html?search_key={keyword}"
+        ],
         "reddit.com": [f"https://www.reddit.com/search/?q={keyword}"],
         "youtube.com": [f"https://www.youtube.com/results?search_query={keyword}"],
         "bilibili.com": [f"https://search.bilibili.com/all?keyword={keyword}"],
-        "xiaohongshu.com": [f"https://www.xiaohongshu.com/search_result?keyword={keyword}"],
+        "xiaohongshu.com": [
+            f"https://www.xiaohongshu.com/search_result?keyword={keyword}"
+        ],
         "weibo.com": [f"https://s.weibo.com/weibo?q={keyword}"],
         "apple.com": [
             f"https://www.apple.com/{product_slug}/" if product_slug else "",
             f"https://www.apple.com/{product_slug}/specs/" if product_slug else "",
-            f"https://www.apple.com/shop/buy-iphone/{product_slug}" if product_slug else "",
+            f"https://www.apple.com/shop/buy-iphone/{product_slug}"
+            if product_slug
+            else "",
             f"https://www.apple.com/search/{keyword}?src=globalnav",
             f"https://www.apple.com/iphone/",
         ],
         "store.google.com": [
-            f"https://store.google.com/us/config/{google_product_slug}?hl=en-US" if google_product_slug else "",
-            f"https://store.google.com/us/product/{google_product_slug}?hl=en-US" if google_product_slug else "",
+            f"https://store.google.com/us/config/{google_product_slug}?hl=en-US"
+            if google_product_slug
+            else "",
+            f"https://store.google.com/us/product/{google_product_slug}?hl=en-US"
+            if google_product_slug
+            else "",
             f"https://store.google.com/us/search?q={keyword}",
             "https://store.google.com/us/category/phones",
         ],
         "samsung.com": [
-            f"https://www.samsung.com/us/smartphones/{product_slug}/buy/" if product_slug else "",
+            f"https://www.samsung.com/us/smartphones/{product_slug}/buy/"
+            if product_slug
+            else "",
             f"https://www.samsung.com/us/search/searchMain/?listType=g&searchTerm={keyword}",
-            f"https://www.samsung.com/us/smartphones/{product_slug}/" if product_slug else "",
+            f"https://www.samsung.com/us/smartphones/{product_slug}/"
+            if product_slug
+            else "",
             "https://www.samsung.com/us/smartphones/",
         ],
     }.get(domain, [])
@@ -657,14 +707,19 @@ def _has_conflicting_model_reference(task: CommerceTask, text: str) -> bool:
         re.IGNORECASE,
     )
     requested_pairs = {
-        (family.lower(), number) for family, number in pattern.findall(f"{task.query} {task.goal}")
+        (family.lower(), number)
+        for family, number in pattern.findall(f"{task.query} {task.goal}")
     }
     if not requested_pairs:
         return False
 
     text_pairs = {(family.lower(), number) for family, number in pattern.findall(text)}
     for family, number in text_pairs:
-        requested_numbers = {requested_number for requested_family, requested_number in requested_pairs if requested_family == family}
+        requested_numbers = {
+            requested_number
+            for requested_family, requested_number in requested_pairs
+            if requested_family == family
+        }
         if requested_numbers and number not in requested_numbers:
             return True
     return False
@@ -706,8 +761,7 @@ def _has_standalone_model_reference(model_name: str, haystack: str) -> bool:
         return False
     base = pattern[:-2] if pattern.endswith(r"\b") else pattern
     variant_pattern = (
-        base
-        + r"(?!\s*(?:pro(?:\s+max|\s+xl)?|plus|ultra|fe|flip|fold|xl)\b)"
+        base + r"(?!\s*(?:pro(?:\s+max|\s+xl)?|plus|ultra|fe|flip|fold|xl)\b)"
     )
     return re.search(variant_pattern, haystack) is not None
 
@@ -797,7 +851,18 @@ def compute_model_match_score(task: CommerceTask, text: str) -> int:
             r"[a-z]+\d+[a-z]*|\d+[a-z]+|[a-z]+|\d+",
             task.query.lower(),
         )
-        if token not in {"price", "official", "specifications", "review", "reddit", "youtube", "amazon", "best", "buy"}
+        if token
+        not in {
+            "price",
+            "official",
+            "specifications",
+            "review",
+            "reddit",
+            "youtube",
+            "amazon",
+            "best",
+            "buy",
+        }
     ]
     matched_tokens = sum(1 for token in query_tokens if token in haystack)
     if query_tokens:
@@ -852,7 +917,9 @@ def score_search_result(
             score -= 10
         if _contains_any(text, REFURBISHED_KEYWORDS):
             score -= 8
-        if _contains_any(text, CORPORATE_NEWS_KEYWORDS | FORUM_KEYWORDS | TRADE_IN_KEYWORDS):
+        if _contains_any(
+            text, CORPORATE_NEWS_KEYWORDS | FORUM_KEYWORDS | TRADE_IN_KEYWORDS
+        ):
             score -= 7
     elif task.category == "official":
         if domain.startswith("apps.") or "/app/" in parsed.path:
@@ -890,7 +957,9 @@ def build_search_overrides(execution_profile: ExecutionProfile) -> Dict[str, obj
 def detect_blocked_reason(
     *, text: str = "", title: str = "", url: str = "", metadata_text: str = ""
 ) -> Optional[str]:
-    haystack = " ".join(part for part in [title, text, url, metadata_text] if part).lower()
+    haystack = " ".join(
+        part for part in [title, text, url, metadata_text] if part
+    ).lower()
     for reason, patterns in BLOCKED_PAGE_PATTERNS.items():
         if _contains_any(haystack, patterns):
             return reason
@@ -953,19 +1022,22 @@ def is_degraded_marketplace_evidence(item: EvidenceItem) -> bool:
     ).lower()
     if _contains_any(haystack, REFURBISHED_KEYWORDS | FINANCING_PRICE_KEYWORDS):
         return True
-    if any(
-        re.search(pattern, haystack)
-        for pattern in [
-            r"\bverizon\b",
-            r"\bat&t\b",
-            r"\batt\b",
-            r"\bt-mobile\b",
-            r"\bcarrier\b",
-            r"\bprepaid\b",
-            r"\blocked\b",
-            r"\bcontract\b",
-        ]
-    ) and "unlocked" not in haystack:
+    if (
+        any(
+            re.search(pattern, haystack)
+            for pattern in [
+                r"\bverizon\b",
+                r"\bat&t\b",
+                r"\batt\b",
+                r"\bt-mobile\b",
+                r"\bcarrier\b",
+                r"\bprepaid\b",
+                r"\blocked\b",
+                r"\bcontract\b",
+            ]
+        )
+        and "unlocked" not in haystack
+    ):
         return True
     return False
 
@@ -1181,9 +1253,7 @@ def should_use_state_only_enrichment(
     )
 
 
-def should_collect_mcp(
-    task: CommerceTask, execution_profile: ExecutionProfile
-) -> bool:
+def should_collect_mcp(task: CommerceTask, execution_profile: ExecutionProfile) -> bool:
     if execution_profile == STABLE_PUBLIC_WEB_PROFILE:
         return task.category in {"pricing", "reviews"}
     if execution_profile == PRODUCT_COMPARE_V2_PROFILE:
@@ -1261,13 +1331,13 @@ def should_attempt_visual_price_recovery(
 ) -> bool:
     if task.category != "pricing" or item.price is not None:
         return False
-    if is_blank_browser_state(current_url=state_url, interactive_elements=interactive_elements):
+    if is_blank_browser_state(
+        current_url=state_url, interactive_elements=interactive_elements
+    ):
         return False
     browser_source = item.metadata.get("browser_source", {})
     strategy = (
-        browser_source.get("strategy", "")
-        if isinstance(browser_source, dict)
-        else ""
+        browser_source.get("strategy", "") if isinstance(browser_source, dict) else ""
     )
     if strategy.startswith("html_fetch_after_") and not interactive_elements.strip():
         return False
@@ -1616,7 +1686,10 @@ class CommerceResearchExecutor:
         browser_enrichments_left = MAX_BROWSER_ENRICHMENTS_PER_TASK
         for result in ranked_results[: task.max_results]:
             quality_score = score_search_result(
-                task, result.url, result.title, result.description or result.raw_content or ""
+                task,
+                result.url,
+                result.title,
+                result.description or result.raw_content or "",
             )
             source_type, credibility = score_source(result.url)
             item = EvidenceItem(
@@ -1656,11 +1729,9 @@ class CommerceResearchExecutor:
                     extracted_text=item.extracted_text or "",
                 ),
             )
-            if (
-                self.execution_profile == PRODUCT_COMPARE_V2_PROFILE
-                and item.metadata["model_match_score"]
-                < minimum_model_match_score(task, self.execution_profile)
-            ):
+            if self.execution_profile == PRODUCT_COMPARE_V2_PROFILE and item.metadata[
+                "model_match_score"
+            ] < minimum_model_match_score(task, self.execution_profile):
                 item.metadata["blocked_reason"] = "model_mismatch"
                 continue
 
@@ -1916,7 +1987,8 @@ class CommerceResearchExecutor:
         item.metadata["model_match_score"] = model_match_score
         if (
             self.execution_profile == PRODUCT_COMPARE_V2_PROFILE
-            and model_match_score < minimum_model_match_score(task, self.execution_profile)
+            and model_match_score
+            < minimum_model_match_score(task, self.execution_profile)
         ):
             item.metadata["blocked_reason"] = "model_mismatch"
             return None
@@ -2051,7 +2123,11 @@ class CommerceResearchExecutor:
                 logger.debug(f"Browser state collection failed for {result.url}: {exc}")
                 state = None
 
-            state_data: Dict[str, str] = {"interactive_elements": "", "url": result.url, "title": ""}
+            state_data: Dict[str, str] = {
+                "interactive_elements": "",
+                "url": result.url,
+                "title": "",
+            }
             if state and not state.error and state.output:
                 try:
                     parsed_state = json.loads(state.output)
@@ -2076,7 +2152,8 @@ class CommerceResearchExecutor:
                 state_blocked_reason = "blank_page"
 
             should_ground = bool(
-                not item.extracted_text or len((item.extracted_text or "").strip()) < 160
+                not item.extracted_text
+                or len((item.extracted_text or "").strip()) < 160
             )
             if (
                 not state_blocked_reason
@@ -2137,10 +2214,14 @@ class CommerceResearchExecutor:
                         timeout=GROUNDING_TIMEOUT_SECONDS,
                     )
                 except TimeoutError:
-                    logger.warning(f"Visual price extraction timed out for {result.url}")
+                    logger.warning(
+                        f"Visual price extraction timed out for {result.url}"
+                    )
                     visual_price = None
                 except Exception as exc:
-                    logger.debug(f"Visual price extraction failed for {result.url}: {exc}")
+                    logger.debug(
+                        f"Visual price extraction failed for {result.url}: {exc}"
+                    )
                     visual_price = None
                 if visual_price:
                     item.metadata["visual_price"] = visual_price.model_dump()
@@ -2294,8 +2375,7 @@ class CommerceResearchExecutor:
             for token in ["推荐", "值得买", "great", "excellent", "满意", "stable", "smooth"]
         )
         negative_hits = sum(
-            token in lowered
-            for token in ["差评", "翻车", "bad", "bug", "发热", "糟糕", "失望"]
+            token in lowered for token in ["差评", "翻车", "bad", "bug", "发热", "糟糕", "失望"]
         )
         if positive_hits and negative_hits:
             return "mixed"

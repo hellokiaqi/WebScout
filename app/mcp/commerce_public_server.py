@@ -1,17 +1,17 @@
-import logging
-import sys
-
 import argparse
 import asyncio
 import html
 import json
-from inspect import Parameter, Signature
+import logging
 import re
+import sys
+from inspect import Parameter, Signature
 from typing import Any, Dict, List, Optional
 from urllib.parse import parse_qs, quote_plus, unquote_plus, urlparse
 
-from mcp.server.fastmcp import FastMCP
 import requests
+from mcp.server.fastmcp import FastMCP
+
 from app.tool.base import BaseTool, ToolResult
 from app.tool.web_search import SearchResult, WebContentFetcher, WebSearch
 
@@ -216,7 +216,12 @@ EDITORIAL_REVIEW_SITE_QUERY_GROUPS = [
     ("techradar.com", "engadget.com", "digitaltrends.com", "androidauthority.com"),
     ("gsmarena.com", "notebookcheck.net", "rtings.com", "arstechnica.com"),
     ("macrumors.com", "9to5mac.com", "consumerreports.org", "nytimes.com"),
-    ("dxomark.com", "trustedreviews.com", "expertreviews.co.uk", "reviewed.usatoday.com"),
+    (
+        "dxomark.com",
+        "trustedreviews.com",
+        "expertreviews.co.uk",
+        "reviewed.usatoday.com",
+    ),
 ]
 EDITORIAL_REVIEW_EXCLUDED_HOSTS = {
     *YOUTUBE_HOSTS,
@@ -567,7 +572,9 @@ def _clean_product_query(
         "buying guide",
         "buyers guide",
     ]
-    for token in sorted((token for token in removable_tokens if token), key=len, reverse=True):
+    for token in sorted(
+        (token for token in removable_tokens if token), key=len, reverse=True
+    ):
         cleaned = re.sub(re.escape(token), " ", cleaned, flags=re.IGNORECASE)
     removable_patterns = [
         r"(?:^|\s)-[^\s]+",
@@ -677,9 +684,11 @@ def _contains_excluded_review_variant(product_hint: str, text: str) -> bool:
         phrase = exclusion.strip().lstrip("-").strip('"').lower()
         if not phrase:
             continue
-        pattern = r"\b" + r"[-\s_]*".join(
-            re.escape(token) for token in phrase.split()
-        ) + r"\b"
+        pattern = (
+            r"\b"
+            + r"[-\s_]*".join(re.escape(token) for token in phrase.split())
+            + r"\b"
+        )
         if re.search(pattern, normalized, re.IGNORECASE):
             return True
     return False
@@ -746,9 +755,9 @@ def _contains_token_phrase(text: str, tokens: set[str]) -> bool:
         token_norm = re.sub(r"[^a-z0-9]+", " ", token.lower()).strip()
         if not token_norm:
             continue
-        pattern = r"\b" + r"\s+".join(
-            re.escape(part) for part in token_norm.split()
-        ) + r"\b"
+        pattern = (
+            r"\b" + r"\s+".join(re.escape(part) for part in token_norm.split()) + r"\b"
+        )
         if re.search(pattern, normalized):
             return True
     return False
@@ -848,7 +857,10 @@ def _infer_marketplace(platform: str, query: str) -> Optional[str]:
 
 
 def _infer_official(platform: str, query: str) -> Optional[str]:
-    from app.commerce.policy import BRAND_DEFAULT_OFFICIAL_SOURCES, detect_product_identity
+    from app.commerce.policy import (
+        BRAND_DEFAULT_OFFICIAL_SOURCES,
+        detect_product_identity,
+    )
 
     if platform in OFFICIAL_DOMAINS:
         return platform
@@ -914,7 +926,9 @@ def _extract_best_apple_price(
         start = max(match.start() - 120, 0)
         end = min(match.end() + 72, len(text))
         context = lowered[start:end]
-        local_context = lowered[max(match.start() - 24, 0) : min(match.end() + 40, len(text))]
+        local_context = lowered[
+            max(match.start() - 24, 0) : min(match.end() + 40, len(text))
+        ]
         score = 0
         if any(
             token in context
@@ -929,7 +943,14 @@ def _extract_best_apple_price(
             score += 4
         if any(
             token in context
-            for token in ["save", "trade-in", "trade in", "after trade", "deal", "footnote"]
+            for token in [
+                "save",
+                "trade-in",
+                "trade in",
+                "after trade",
+                "deal",
+                "footnote",
+            ]
         ):
             score -= 5
         if any(
@@ -939,7 +960,12 @@ def _extract_best_apple_price(
             score -= 8
         if any(
             token in local_context
-            for token in ["buy iphone", "connect to any carrier later", "starting at", "starts at"]
+            for token in [
+                "buy iphone",
+                "connect to any carrier later",
+                "starting at",
+                "starts at",
+            ]
         ):
             score += 4
         if any(token in context for token in ["iphone", "128 gb", "256 gb", "512 gb"]):
@@ -1022,7 +1048,9 @@ def _extract_generic_official_price(
         end = min(match.end() + 120, len(text))
         context = text[start:end].lower()
         score = 0
-        if any(token in context for token in ["starting at", "starts at", "buy", "from"]):
+        if any(
+            token in context for token in ["starting at", "starts at", "buy", "from"]
+        ):
             score += 5
         if any(token in context for token in ["trade-in", "trade in", "save", "deal"]):
             score -= 6
@@ -1053,7 +1081,7 @@ def _extract_google_official_price_from_html(
 
     candidates: List[tuple[int, float, str]] = []
     for match in re.finditer(
-        r'data-test-price>\$(?P<amount>\d[\d,]*(?:\.\d{2})?)',
+        r"data-test-price>\$(?P<amount>\d[\d,]*(?:\.\d{2})?)",
         html_text,
         re.IGNORECASE,
     ):
@@ -1073,7 +1101,9 @@ def _extract_google_official_price_from_html(
         candidates.append((score, amount, f"${match.group('amount')}"))
 
     if not candidates:
-        for match in re.finditer(r"from\s+\$(?P<amount>\d[\d,]*(?:\.\d{2})?)", html_text, re.IGNORECASE):
+        for match in re.finditer(
+            r"from\s+\$(?P<amount>\d[\d,]*(?:\.\d{2})?)", html_text, re.IGNORECASE
+        ):
             amount = float(match.group("amount").replace(",", ""))
             if amount <= 0 or amount > 3000:
                 continue
@@ -1092,10 +1122,7 @@ def _extract_google_official_price_from_html(
 
 
 def _has_variant_mismatch(product_hint: str, text: str) -> bool:
-    from app.commerce.policy import (
-        detect_product_identity,
-        has_configuration_conflict,
-    )
+    from app.commerce.policy import detect_product_identity, has_configuration_conflict
 
     identity = detect_product_identity(product_hint)
     if not identity.family:
@@ -1147,7 +1174,9 @@ def _extract_samsung_official_price_from_html(
         title_position = title_match.start() - segment_start
 
         def _nearest_amount(matches):
-            nearest = min(matches, key=lambda match: abs(match.start() - title_position))
+            nearest = min(
+                matches, key=lambda match: abs(match.start() - title_position)
+            )
             return float(nearest.group("amount"))
 
         amount = (
@@ -1214,9 +1243,7 @@ async def _execute_search(
     except Exception:
         pass
     return [
-        result
-        for result in results
-        if result.url.startswith(("http://", "https://"))
+        result for result in results if result.url.startswith(("http://", "https://"))
     ]
 
 
@@ -1426,7 +1453,10 @@ def _marketplace_alias_search_urls(query: str, platform: str) -> List[str]:
 
 
 def _marketplace_search_urls(query: str, platform: str) -> List[str]:
-    urls = [_marketplace_search_url(query, platform), *_marketplace_alias_search_urls(query, platform)]
+    urls = [
+        _marketplace_search_url(query, platform),
+        *_marketplace_alias_search_urls(query, platform),
+    ]
     deduped: List[str] = []
     seen: set[str] = set()
     for url in urls:
@@ -1550,11 +1580,17 @@ def _apple_urls(query: str) -> List[str]:
         urls.extend(
             [
                 f"https://www.apple.com/{slug}/" if slug else "",
-                f"https://www.apple.com/search/{quote_plus(product)}?src=globalnav" if product else "",
+                f"https://www.apple.com/search/{quote_plus(product)}?src=globalnav"
+                if product
+                else "",
                 "https://www.apple.com/store",
             ]
         )
-    urls.append(f"https://www.apple.com/search/{quote_plus(product)}?src=globalnav" if product else "")
+    urls.append(
+        f"https://www.apple.com/search/{quote_plus(product)}?src=globalnav"
+        if product
+        else ""
+    )
     return [url for url in urls if url]
 
 
@@ -1648,7 +1684,8 @@ def _is_official_product_page(url: str, platform: str) -> bool:
         return _is_apple_product_page(url)
     if platform == "store.google.com":
         return domain == "store.google.com" and any(
-            token in path for token in ["/config/", "/product/", "/category/phones", "/search"]
+            token in path
+            for token in ["/config/", "/product/", "/category/phones", "/search"]
         )
     if platform == "Samsung.com":
         return domain in {"www.samsung.com", "samsung.com"} and any(
@@ -1722,7 +1759,9 @@ def _is_phone_offer_compatible(title: str, body: str, product_hint: str) -> bool
         r"/month",
         r"per month",
     ]
-    return not any(re.search(pattern, lowered, re.IGNORECASE) for pattern in incompatible_patterns)
+    return not any(
+        re.search(pattern, lowered, re.IGNORECASE) for pattern in incompatible_patterns
+    )
 
 
 def _infer_offer_condition(title: str, body: str) -> str:
@@ -1731,7 +1770,13 @@ def _infer_offer_condition(title: str, body: str) -> str:
         return "refurbished_or_renewed"
     if any(
         token in lowered
-        for token in ["international version", "global version", "global rom", "gsm smartphone", "gsm only"]
+        for token in [
+            "international version",
+            "global version",
+            "global rom",
+            "gsm smartphone",
+            "gsm only",
+        ]
     ):
         return "cross_region_or_international"
     if "unlocked" in lowered:
@@ -1769,9 +1814,15 @@ def _select_best_direct_price_text(text: str) -> Optional[str]:
         score = 0
         if any(token in context for token in ["/month", "per month", "monthly"]):
             score -= 100
-        if any(token in context for token in ["save ", "comparable value", "was $", "trade-in", "trade in"]):
+        if any(
+            token in context
+            for token in ["save ", "comparable value", "was $", "trade-in", "trade in"]
+        ):
             score -= 10
-        if any(token in context for token in ["pick up", "delivery", "free", "in stock", "buy"]):
+        if any(
+            token in context
+            for token in ["pick up", "delivery", "free", "in stock", "buy"]
+        ):
             score += 4
         if any(token in context for token in ["unlocked", "new", "apple intelligence"]):
             score += 3
@@ -1894,7 +1945,9 @@ def _matches_product_hint(title: str, body: str, product_hint: str) -> bool:
         return False
     if alpha_tokens and not all(token in haystack_tokens for token in alpha_tokens[:3]):
         return False
-    if number_tokens and not all(token in haystack_tokens for token in number_tokens[:2]):
+    if number_tokens and not all(
+        token in haystack_tokens for token in number_tokens[:2]
+    ):
         return False
     if requested_variants:
         if not requested_variants.issubset(offered_variants) or (
@@ -1949,7 +2002,9 @@ def _matches_product_hint(title: str, body: str, product_hint: str) -> bool:
     return True
 
 
-def _matches_video_review_product_hint(title: str, body: str, product_hint: str) -> bool:
+def _matches_video_review_product_hint(
+    title: str, body: str, product_hint: str
+) -> bool:
     if _matches_product_hint(title, body, product_hint):
         return True
 
@@ -1986,9 +2041,13 @@ def _matches_listing_identity(title: str, url: str, product_hint: str) -> bool:
     normalized_tokens = set(_tokenize_identity_text(normalized))
     exact_tokens = [token for token in tokens if re.search(r"\d", token)]
     alpha_tokens = [token for token in tokens if token.isalpha() and len(token) >= 3]
-    if exact_tokens and not all(token in normalized_tokens for token in exact_tokens[:4]):
+    if exact_tokens and not all(
+        token in normalized_tokens for token in exact_tokens[:4]
+    ):
         return False
-    if alpha_tokens and not all(token in normalized_tokens for token in alpha_tokens[:3]):
+    if alpha_tokens and not all(
+        token in normalized_tokens for token in alpha_tokens[:3]
+    ):
         return False
     pattern = r"\b" + r"[-\s_]*".join(re.escape(token) for token in tokens) + r"\b"
     return re.search(pattern, normalized) is not None or all(
@@ -2085,7 +2144,9 @@ def _is_core_product_with_included_accessories(title: str, product_hint: str) ->
 def _is_ambiguous_phone_listing_match(title: str, url: str, product_hint: str) -> bool:
     if not _looks_like_phone_query(product_hint):
         return False
-    if _has_conflicting_phone_model_reference(product_hint, f"{title} {urlparse(url).path}"):
+    if _has_conflicting_phone_model_reference(
+        product_hint, f"{title} {urlparse(url).path}"
+    ):
         return False
 
     tokens = _identity_tokens(product_hint)
@@ -2149,9 +2210,11 @@ def _extract_amazon_mirror_observations(
             url,
             product_hint,
         )
-        if _looks_like_phone_query(product_hint) and not _matches_listing_identity(
-            title, url, product_hint
-        ) and not ambiguous_phone_match:
+        if (
+            _looks_like_phone_query(product_hint)
+            and not _matches_listing_identity(title, url, product_hint)
+            and not ambiguous_phone_match
+        ):
             continue
         if (
             not _matches_product_hint(title, matching_body, product_hint)
@@ -2280,7 +2343,9 @@ def _extract_walmart_mirror_observations(
             line,
         )
         if linked_title:
-            title = (linked_title.group("title1") or linked_title.group("title2") or "").strip()
+            title = (
+                linked_title.group("title1") or linked_title.group("title2") or ""
+            ).strip()
             url = linked_title.group("url").strip()
         elif line.startswith("### "):
             title = _normalize_marketplace_segment(line[4:].strip())
@@ -2519,9 +2584,7 @@ def _extract_link_card_marketplace_observations(
     for index, match in enumerate(matches):
         groups = match.groupdict()
         title = _clean_marketplace_card_title(
-            groups.get("title")
-            or groups.get("title_img")
-            or ""
+            groups.get("title") or groups.get("title_img") or ""
         )
         url = (groups.get("url") or groups.get("url_img") or "").strip()
         if not title or not url or url in seen_urls:
@@ -2530,7 +2593,9 @@ def _extract_link_card_marketplace_observations(
         start = match.start()
         if platform == "Target":
             start = max(0, start - 300)
-        end = matches[index + 1].start() if index + 1 < len(matches) else len(text or "")
+        end = (
+            matches[index + 1].start() if index + 1 < len(matches) else len(text or "")
+        )
         segment = text[start:end]
         body = _normalize_marketplace_segment(segment)
         for stop_marker in [
@@ -2715,7 +2780,11 @@ def _rank_price_observation(observation: Dict[str, Any], product_hint: str) -> i
     snippet = str(observation.get("snippet") or "")
     extracted_text = str(observation.get("extracted_text") or "")
     source_type = str(observation.get("source_type") or "")
-    metadata = observation.get("metadata") if isinstance(observation.get("metadata"), dict) else {}
+    metadata = (
+        observation.get("metadata")
+        if isinstance(observation.get("metadata"), dict)
+        else {}
+    )
     body = " ".join([title, snippet, extracted_text])
     quote_quality = str(metadata.get("quote_quality") or "")
 
@@ -2726,12 +2795,17 @@ def _rank_price_observation(observation: Dict[str, Any], product_hint: str) -> i
         score += 18
     else:
         score -= 40
-    offer_condition = str(metadata.get("offer_condition") or _infer_offer_condition(title, body))
+    offer_condition = str(
+        metadata.get("offer_condition") or _infer_offer_condition(title, body)
+    )
     if source_type == "official":
         if offer_condition == "official_new":
             score += 12
     else:
-        if _is_low_quality_marketplace_title(title, body) and quote_quality != "degraded_marketplace":
+        if (
+            _is_low_quality_marketplace_title(title, body)
+            and quote_quality != "degraded_marketplace"
+        ):
             score -= 100
         if quote_quality == "degraded_marketplace":
             score -= 8
@@ -2750,7 +2824,9 @@ def _rank_price_observation(observation: Dict[str, Any], product_hint: str) -> i
     return score
 
 
-def _dedupe_price_observations(observations: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _dedupe_price_observations(
+    observations: List[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
     deduped: List[Dict[str, Any]] = []
     seen_keys: set[tuple[str, str, str]] = set()
     for item in observations:
@@ -2785,7 +2861,9 @@ def _looks_like_marketplace_review_signal(text: str) -> bool:
         return True
     if re.search(r"\b\d[\d,]*\s+(?:customer\s+)?reviews?\b", lowered):
         return True
-    keyword_hits = sum(1 for keyword in MARKETPLACE_REVIEW_KEYWORDS if keyword in lowered)
+    keyword_hits = sum(
+        1 for keyword in MARKETPLACE_REVIEW_KEYWORDS if keyword in lowered
+    )
     return keyword_hits >= 2
 
 
@@ -2875,7 +2953,9 @@ def _extract_marketplace_review_card_observations(
     seen_urls: set[str] = set()
     for index, match in enumerate(matches):
         groups = match.groupdict()
-        title = (groups.get("title") or groups.get("title1") or groups.get("title2") or "").strip()
+        title = (
+            groups.get("title") or groups.get("title1") or groups.get("title2") or ""
+        ).strip()
         url = (groups.get("url") or "").strip()
         if not title or not url or url in seen_urls:
             continue
@@ -2957,7 +3037,9 @@ def _rank_marketplace_review_observation(item: Dict[str, Any]) -> int:
         score += 18
     if "customer reviews" in text or "customer review" in text:
         score += 10
-    score += min(18, sum(3 for keyword in MARKETPLACE_REVIEW_KEYWORDS if keyword in text))
+    score += min(
+        18, sum(3 for keyword in MARKETPLACE_REVIEW_KEYWORDS if keyword in text)
+    )
     return score
 
 
@@ -3065,7 +3147,11 @@ def _amazon_review_url(url: str) -> str:
 def _bestbuy_review_url(url: str) -> str:
     parsed = urlparse(url or "")
     path_parts = [part for part in parsed.path.split("/") if part]
-    if len(path_parts) >= 4 and path_parts[0] == "site" and path_parts[-1].endswith(".p"):
+    if (
+        len(path_parts) >= 4
+        and path_parts[0] == "site"
+        and path_parts[-1].endswith(".p")
+    ):
         sku = path_parts[-1].split(".", 1)[0]
         slug = path_parts[-2]
         return f"https://www.bestbuy.com/site/reviews/{slug}/{sku}"
@@ -3261,8 +3347,12 @@ async def _collect_marketplace_observations(
 
     if not observations:
         degraded_search_page_url = _marketplace_degraded_search_url(query, platform)
-        if degraded_search_page_url and degraded_search_page_url not in set(search_page_urls):
-            degraded_mirror_text = await _fetch_public_mirror_text(degraded_search_page_url)
+        if degraded_search_page_url and degraded_search_page_url not in set(
+            search_page_urls
+        ):
+            degraded_mirror_text = await _fetch_public_mirror_text(
+                degraded_search_page_url
+            )
             if degraded_mirror_text:
                 observations.extend(
                     _extract_marketplace_mirror_observations(
@@ -3343,7 +3433,9 @@ async def _collect_marketplace_observations(
 
             if not price:
                 price = _parse_price(
-                    "\n".join(filter(None, [result.title, result.description, page_text])),
+                    "\n".join(
+                        filter(None, [result.title, result.description, page_text])
+                    ),
                     platform=platform,
                     title=result.title,
                     url=result.url,
@@ -3401,12 +3493,14 @@ async def _collect_marketplace_review_observations(
     price_lookup_query = f"{product_hint} price {platform}".strip()
     review_lookup_query = product_hint
     if platform == "Amazon":
-        observations = await _collect_marketplace_review_observations_from_candidate_urls(
-            review_lookup_query,
-            platform=platform,
-            price_observations=[],
-            product_hint=product_hint,
-            max_results=max_results,
+        observations = (
+            await _collect_marketplace_review_observations_from_candidate_urls(
+                review_lookup_query,
+                platform=platform,
+                price_observations=[],
+                product_hint=product_hint,
+                max_results=max_results,
+            )
         )
         if observations:
             return observations[:max_results]
@@ -3425,8 +3519,7 @@ async def _collect_marketplace_review_observations(
     for item in price_observations:
         source_url = str(item.get("url") or "").strip()
         source_text = "\n".join(
-            str(item.get(key) or "")
-            for key in ("title", "snippet", "extracted_text")
+            str(item.get(key) or "") for key in ("title", "snippet", "extracted_text")
         )
         observations.extend(
             _extract_marketplace_review_observations_from_text(
@@ -3571,7 +3664,9 @@ async def _collect_reddit_review_observations(
     observations: List[Dict[str, Any]] = []
     product_hint = _clean_review_product_query(query, "Reddit")
     observations.extend(
-        await _collect_reddit_feed_observations(query, product_hint, max_results=max_results)
+        await _collect_reddit_feed_observations(
+            query, product_hint, max_results=max_results
+        )
     )
     observations = _dedupe_review_observations(observations)
     if len(observations) < max_results:
@@ -3587,7 +3682,9 @@ async def _collect_reddit_review_observations(
         observations,
         max_results,
     ):
-        return _rank_reddit_review_observations(observations, product_hint)[:max_results]
+        return _rank_reddit_review_observations(observations, product_hint)[
+            :max_results
+        ]
 
     for result in await _execute_search(
         _reddit_review_query(query),
@@ -3639,9 +3736,7 @@ def _editorial_review_url_candidates(product_hint: str) -> List[str]:
     qualified_product = _qualify_product_query(product)
     slugs = list(
         dict.fromkeys(
-            slug
-            for slug in [_slugify(qualified_product), _slugify(product)]
-            if slug
+            slug for slug in [_slugify(qualified_product), _slugify(product)] if slug
         )
     )
     if not slugs:
@@ -3701,7 +3796,9 @@ def _is_editorial_review_result(result: SearchResult, product_hint: str) -> bool
     description = result.description or result.raw_content or ""
     body = f"{title} {description}"
     lowered_body = body.lower()
-    has_review_signal = any(term in lowered_body for term in EDITORIAL_REVIEW_SIGNAL_TERMS)
+    has_review_signal = any(
+        term in lowered_body for term in EDITORIAL_REVIEW_SIGNAL_TERMS
+    )
     if not has_review_signal and domain not in EDITORIAL_REVIEW_DOMAINS:
         return False
     return _matches_product_hint(title, description, product_hint)
@@ -4051,7 +4148,10 @@ async def _collect_editorial_review_observations(
                     title=result.title or "Editorial review result",
                     url=result.url,
                     snippet=result.description or result.raw_content or "",
-                    extracted_text=extracted_text or result.description or result.raw_content or "",
+                    extracted_text=extracted_text
+                    or result.description
+                    or result.raw_content
+                    or "",
                     source_type="media",
                     credibility=0.82 if domain in EDITORIAL_REVIEW_DOMAINS else 0.72,
                     metadata={
@@ -4076,7 +4176,9 @@ async def _collect_editorial_review_observations(
     return observations[:max_results]
 
 
-def _dedupe_review_observations(observations: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _dedupe_review_observations(
+    observations: List[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
     deduped: List[Dict[str, Any]] = []
     seen_urls: set[str] = set()
     seen_titles: set[str] = set()
@@ -4108,7 +4210,9 @@ def _rank_reddit_review_observations(
     observations: List[Dict[str, Any]], product_hint: str
 ) -> List[Dict[str, Any]]:
     def score(item: Dict[str, Any]) -> float:
-        metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+        metadata = (
+            item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+        )
         title = str(item.get("title") or "")
         snippet = str(item.get("snippet") or "")
         extracted_text = str(item.get("extracted_text") or "")
@@ -4344,7 +4448,9 @@ def _extract_reddit_feed_observations_from_text(
     max_results: int,
 ) -> List[Dict[str, Any]]:
     observations: List[Dict[str, Any]] = []
-    entries = re.findall(r"<entry\b[^>]*>(?P<entry>.*?)</entry>", text or "", re.DOTALL | re.IGNORECASE)
+    entries = re.findall(
+        r"<entry\b[^>]*>(?P<entry>.*?)</entry>", text or "", re.DOTALL | re.IGNORECASE
+    )
     if entries:
         seen_urls: set[str] = set()
         for entry in entries:
@@ -4375,7 +4481,9 @@ def _extract_reddit_feed_observations_from_text(
             combined_text = " ".join(filter(None, [title, body]))
             if not combined_text or _is_blocked_text(combined_text):
                 continue
-            if not _matches_product_hint(title, "", product_hint) and not _matches_product_hint(
+            if not _matches_product_hint(
+                title, "", product_hint
+            ) and not _matches_product_hint(
                 title,
                 combined_text,
                 product_hint,
@@ -4425,11 +4533,17 @@ def _extract_reddit_feed_observations_from_text(
             re.DOTALL | re.IGNORECASE,
         )
         title = _strip_markup(title_match.group("title")) if title_match else ""
-        body = _strip_markup(body_match.group("body")) if body_match else _strip_markup(segment)
+        body = (
+            _strip_markup(body_match.group("body"))
+            if body_match
+            else _strip_markup(segment)
+        )
         combined_text = " ".join(filter(None, [title, body]))
         if not combined_text or _is_blocked_text(combined_text):
             continue
-        if not _matches_product_hint(title, "", product_hint) and not _matches_product_hint(
+        if not _matches_product_hint(
+            title, "", product_hint
+        ) and not _matches_product_hint(
             title,
             combined_text,
             product_hint,
@@ -4467,7 +4581,10 @@ async def _collect_reddit_feed_observations(
 ) -> List[Dict[str, Any]]:
     observations: List[Dict[str, Any]] = []
     feed_results = await asyncio.gather(
-        *[_fetch_reddit_public_text(feed_url) for feed_url in _reddit_feed_urls(product_hint)],
+        *[
+            _fetch_reddit_public_text(feed_url)
+            for feed_url in _reddit_feed_urls(product_hint)
+        ],
         return_exceptions=True,
     )
     for feed_text in feed_results:
@@ -4631,14 +4748,19 @@ async def _collect_official_observations(
     if observations:
         return observations[:max_results]
 
-    search_query = f"site:{OFFICIAL_DOMAINS[resolved_platform]} {product_hint} official buy"
+    search_query = (
+        f"site:{OFFICIAL_DOMAINS[resolved_platform]} {product_hint} official buy"
+    )
     for result in await _execute_search(
         search_query,
         num_results=max_results,
         lang="en",
         country="us",
     ):
-        if OFFICIAL_DOMAINS[resolved_platform] not in urlparse(result.url).netloc.lower():
+        if (
+            OFFICIAL_DOMAINS[resolved_platform]
+            not in urlparse(result.url).netloc.lower()
+        ):
             continue
         page_text = await _fetch_page_text(result.url)
         raw_html = ""
@@ -4648,7 +4770,9 @@ async def _collect_official_observations(
         if not combined_source_text or _is_blocked_text(combined_source_text):
             continue
         normalized_text = page_text or _strip_markup(raw_html)
-        combined_text = "\n".join(filter(None, [result.description or "", normalized_text]))
+        combined_text = "\n".join(
+            filter(None, [result.description or "", normalized_text])
+        )
         if not _matches_product_hint(result.title or "", combined_text, product_hint):
             continue
         title = result.title or f"{resolved_platform} official result"
@@ -4715,7 +4839,9 @@ async def _collect_official_observations(
 
 class MarketplacePriceSearchTool(BaseTool):
     name: str = "marketplace_price_search"
-    description: str = "Search public marketplace product pages for price or offer signals."
+    description: str = (
+        "Search public marketplace product pages for price or offer signals."
+    )
     parameters: dict = {
         "type": "object",
         "properties": {
@@ -4738,19 +4864,25 @@ class MarketplacePriceSearchTool(BaseTool):
     ) -> ToolResult:
         resolved_platform = _infer_marketplace(platform, query)
         if not resolved_platform:
-            return ToolResult(output=json.dumps({"observations": []}, ensure_ascii=False))
+            return ToolResult(
+                output=json.dumps({"observations": []}, ensure_ascii=False)
+            )
         observations = await _collect_marketplace_observations(
             query,
             platform=resolved_platform,
             max_results=max_results,
             allow_search_fallback=True,
         )
-        return ToolResult(output=json.dumps({"observations": observations}, ensure_ascii=False))
+        return ToolResult(
+            output=json.dumps({"observations": observations}, ensure_ascii=False)
+        )
 
 
 class OfficialCatalogSearchTool(BaseTool):
     name: str = "official_catalog_search"
-    description: str = "Search official product or buy pages for specifications and public pricing."
+    description: str = (
+        "Search official product or buy pages for specifications and public pricing."
+    )
     parameters: dict = {
         "type": "object",
         "properties": {
@@ -4776,12 +4908,16 @@ class OfficialCatalogSearchTool(BaseTool):
             platform=platform,
             max_results=max_results,
         )
-        return ToolResult(output=json.dumps({"observations": observations}, ensure_ascii=False))
+        return ToolResult(
+            output=json.dumps({"observations": observations}, ensure_ascii=False)
+        )
 
 
 class YouTubeVideoReviewSearchTool(BaseTool):
     name: str = "youtube_video_review_search"
-    description: str = "Search public YouTube video review pages and return concise review snippets."
+    description: str = (
+        "Search public YouTube video review pages and return concise review snippets."
+    )
     parameters: dict = {
         "type": "object",
         "properties": {
@@ -4803,18 +4939,24 @@ class YouTubeVideoReviewSearchTool(BaseTool):
         self, query: str, platform: str = "YouTube", max_results: int = 3
     ) -> ToolResult:
         if "youtube" not in f"{platform} {query}".lower():
-            return ToolResult(output=json.dumps({"observations": []}, ensure_ascii=False))
+            return ToolResult(
+                output=json.dumps({"observations": []}, ensure_ascii=False)
+            )
         observations = await _collect_youtube_review_observations(
             query,
             max_results=max_results,
             allow_search_fallback=True,
         )
-        return ToolResult(output=json.dumps({"observations": observations}, ensure_ascii=False))
+        return ToolResult(
+            output=json.dumps({"observations": observations}, ensure_ascii=False)
+        )
 
 
 class MarketplaceCustomerReviewSearchTool(BaseTool):
     name: str = "marketplace_customer_review_search"
-    description: str = "Collect public customer rating and review signals from retail product pages."
+    description: str = (
+        "Collect public customer rating and review signals from retail product pages."
+    )
     parameters: dict = {
         "type": "object",
         "properties": {
@@ -4841,12 +4983,16 @@ class MarketplaceCustomerReviewSearchTool(BaseTool):
             platform=platform,
             max_results=max_results,
         )
-        return ToolResult(output=json.dumps({"observations": observations}, ensure_ascii=False))
+        return ToolResult(
+            output=json.dumps({"observations": observations}, ensure_ascii=False)
+        )
 
 
 class RedditCommunityReviewSearchTool(BaseTool):
     name: str = "reddit_community_review_search"
-    description: str = "Search public Reddit threads and return concise community review snippets."
+    description: str = (
+        "Search public Reddit threads and return concise community review snippets."
+    )
     parameters: dict = {
         "type": "object",
         "properties": {
@@ -4868,17 +5014,23 @@ class RedditCommunityReviewSearchTool(BaseTool):
         self, query: str, platform: str = "Reddit", max_results: int = 3
     ) -> ToolResult:
         if "reddit" not in f"{platform} {query}".lower():
-            return ToolResult(output=json.dumps({"observations": []}, ensure_ascii=False))
+            return ToolResult(
+                output=json.dumps({"observations": []}, ensure_ascii=False)
+            )
         observations = await _collect_reddit_review_observations(
             query,
             max_results=max_results,
         )
-        return ToolResult(output=json.dumps({"observations": observations}, ensure_ascii=False))
+        return ToolResult(
+            output=json.dumps({"observations": observations}, ensure_ascii=False)
+        )
 
 
 class EditorialWebReviewSearchTool(BaseTool):
     name: str = "editorial_web_review_search"
-    description: str = "Search public editorial, professional, and buying-guide review pages."
+    description: str = (
+        "Search public editorial, professional, and buying-guide review pages."
+    )
     parameters: dict = {
         "type": "object",
         "properties": {
@@ -4904,7 +5056,9 @@ class EditorialWebReviewSearchTool(BaseTool):
             query,
             max_results=max_results,
         )
-        return ToolResult(output=json.dumps({"observations": observations}, ensure_ascii=False))
+        return ToolResult(
+            output=json.dumps({"observations": observations}, ensure_ascii=False)
+        )
 
 
 class PriceBenchmarkSearchTool(BaseTool):
@@ -4944,8 +5098,16 @@ class PriceBenchmarkSearchTool(BaseTool):
             )
             for platform in benchmark_platforms
         ]
-        if any(token in query.lower() for token in ["apple", "iphone", "ipad", "mac", "airpods"]):
-            collectors.insert(0, _collect_official_observations(query, platform="Apple.com", max_results=1))
+        if any(
+            token in query.lower()
+            for token in ["apple", "iphone", "ipad", "mac", "airpods"]
+        ):
+            collectors.insert(
+                0,
+                _collect_official_observations(
+                    query, platform="Apple.com", max_results=1
+                ),
+            )
 
         observations: List[Dict[str, Any]] = []
         for result_set in await asyncio.gather(*collectors, return_exceptions=True):
@@ -5018,7 +5180,9 @@ class CommercePublicMCPServer:
         if param_props:
             docstring += "\n\nParameters:\n"
             for param_name, param_details in param_props.items():
-                required_str = "(required)" if param_name in required_params else "(optional)"
+                required_str = (
+                    "(required)" if param_name in required_params else "(optional)"
+                )
                 param_type = param_details.get("type", "any")
                 param_desc = param_details.get("description", "")
                 docstring += (

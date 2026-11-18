@@ -229,17 +229,17 @@ def test_mcp_bridge_builds_marketplace_observations_from_playwright_snapshot():
             "### Snapshot\n"
             "```yaml\n"
             "- generic:\n"
-            "  - heading \"Results\" [level=2]\n"
+            '  - heading "Results" [level=2]\n'
             "  - list:\n"
             "    - listitem [ref=e217]:\n"
-            "      - link \"Apple iPhone 16, US Version, 128GB, Black - Unlocked (Renewed)\" [ref=e236] [cursor=pointer]:\n"
+            '      - link "Apple iPhone 16, US Version, 128GB, Black - Unlocked (Renewed)" [ref=e236] [cursor=pointer]:\n'
             "        - /url: /Apple-iPhone-16-Version-128GB/dp/B0DHJH2GZL/ref=sr_1_1\n"
-            "        - heading \"Apple iPhone 16, US Version, 128GB, Black - Unlocked (Renewed)\" [level=2] [ref=e237]\n"
+            '        - heading "Apple iPhone 16, US Version, 128GB, Black - Unlocked (Renewed)" [level=2] [ref=e237]\n'
             "      - generic [ref=e618]: CNY 2,531.35\n"
             "    - listitem [ref=e280]:\n"
-            "      - link \"Apple iPhone 16, US Version, 128GB, Black - Unlocked (Renewed Premium)\" [ref=e299] [cursor=pointer]:\n"
+            '      - link "Apple iPhone 16, US Version, 128GB, Black - Unlocked (Renewed Premium)" [ref=e299] [cursor=pointer]:\n'
             "        - /url: /Apple-iPhone-Version-128GB-Black/dp/B0DPD1296D/ref=sr_1_2\n"
-            "        - heading \"Apple iPhone 16, US Version, 128GB, Black - Unlocked (Renewed Premium)\" [level=2] [ref=e300]\n"
+            '        - heading "Apple iPhone 16, US Version, 128GB, Black - Unlocked (Renewed Premium)" [level=2] [ref=e300]\n'
             "      - generic [ref=e842]: CNY 2,622.52\n"
             "```\n"
         ),
@@ -252,7 +252,9 @@ def test_mcp_bridge_builds_marketplace_observations_from_playwright_snapshot():
     assert observations[0]["metadata"]["offer_condition"] == "refurbished_or_renewed"
     assert observations[0]["metadata"]["quote_quality"] == "degraded_marketplace"
     assert observations[0]["price"]["amount"] == 2531.35
-    assert observations[0]["url"].startswith("https://www.amazon.com/Apple-iPhone-16-Version-128GB")
+    assert observations[0]["url"].startswith(
+        "https://www.amazon.com/Apple-iPhone-16-Version-128GB"
+    )
 
 
 @pytest.mark.asyncio
@@ -284,7 +286,9 @@ async def test_product_compare_v2_mcp_skips_playwright_snapshot_fallback(monkeyp
     )
 
     async def fail_playwright_marketplace_snapshot(task_arg):
-        raise AssertionError("product_compare_v2 should leave browser fallback to executor")
+        raise AssertionError(
+            "product_compare_v2 should leave browser fallback to executor"
+        )
 
     monkeypatch.setattr(
         bridge,

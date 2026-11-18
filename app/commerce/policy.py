@@ -124,14 +124,50 @@ GENERIC_VARIANT_TOKENS = [
     "max",
 ]
 PRODUCT_FAMILY_PATTERNS: List[tuple[str, str, str, str, Optional[str]]] = [
-    (r"\b(iPhone\s*\d+[a-z]?(?:\s+(?:Pro(?:\s+Max)?|Plus))?)\b", "Apple", "iPhone", "phone", "iphone_us"),
-    (r"\b(Pixel\s*\d+[a-z]?(?:\s+(?:Pro(?:\s+XL)?|Fold))?)\b", "Google", "Pixel", "phone", "pixel_us"),
-    (r"\b(Galaxy\s*[A-Z]?\d+[a-z]?(?:\s+(?:Ultra|Plus|FE|Flip|Fold|Edge))?)\b", "Samsung", "Galaxy", "phone", "galaxy_us"),
-    (r"\b((?:\d{2}(?:\.\d)?-inch\s+)?MacBook\s+(?:Pro|Air)(?:\s+M\d(?:\s+(?:Pro|Max|Ultra))?)?)\b", "Apple", "MacBook", "laptop", None),
+    (
+        r"\b(iPhone\s*\d+[a-z]?(?:\s+(?:Pro(?:\s+Max)?|Plus))?)\b",
+        "Apple",
+        "iPhone",
+        "phone",
+        "iphone_us",
+    ),
+    (
+        r"\b(Pixel\s*\d+[a-z]?(?:\s+(?:Pro(?:\s+XL)?|Fold))?)\b",
+        "Google",
+        "Pixel",
+        "phone",
+        "pixel_us",
+    ),
+    (
+        r"\b(Galaxy\s*[A-Z]?\d+[a-z]?(?:\s+(?:Ultra|Plus|FE|Flip|Fold|Edge))?)\b",
+        "Samsung",
+        "Galaxy",
+        "phone",
+        "galaxy_us",
+    ),
+    (
+        r"\b((?:\d{2}(?:\.\d)?-inch\s+)?MacBook\s+(?:Pro|Air)(?:\s+M\d(?:\s+(?:Pro|Max|Ultra))?)?)\b",
+        "Apple",
+        "MacBook",
+        "laptop",
+        None,
+    ),
     (r"\b(iPad\s+(?:Pro|Air|mini))\b", "Apple", "iPad", "tablet", None),
     (r"\b(AirPods\s+(?:Pro|Max|\d+))\b", "Apple", "AirPods", "audio", None),
-    (r"\b(Apple\s+Watch(?:\s+(?:Series\s*\d+|SE|Ultra(?:\s*2)?))?)\b", "Apple", "Apple Watch", "wearable", None),
-    (r"\b(Surface\s+(?:Pro|Laptop(?:\s+Studio)?|Book))\b", "Microsoft", "Surface", "laptop", None),
+    (
+        r"\b(Apple\s+Watch(?:\s+(?:Series\s*\d+|SE|Ultra(?:\s*2)?))?)\b",
+        "Apple",
+        "Apple Watch",
+        "wearable",
+        None,
+    ),
+    (
+        r"\b(Surface\s+(?:Pro|Laptop(?:\s+Studio)?|Book))\b",
+        "Microsoft",
+        "Surface",
+        "laptop",
+        None,
+    ),
     (r"\b(Xbox\s+Series\s+[XS])\b", "Microsoft", "Xbox", "console", None),
     (r"\b(ThinkPad\s+[A-Z0-9][A-Za-z0-9\s-]*)\b", "Lenovo", "ThinkPad", "laptop", None),
     (r"\b(IdeaPad\s+[A-Z0-9][A-Za-z0-9\s-]*)\b", "Lenovo", "IdeaPad", "laptop", None),
@@ -154,7 +190,13 @@ PRODUCT_FAMILY_PATTERNS: List[tuple[str, str, str, str, Optional[str]]] = [
     (r"\b(Aspire\s+[A-Za-z0-9\s-]+)\b", "Acer", "Aspire", "laptop", None),
     (r"\b(Predator\s+[A-Za-z0-9\s-]+)\b", "Acer", "Predator", "laptop", None),
     (r"\b(Nitro\s+[A-Za-z0-9\s-]+)\b", "Acer", "Nitro", "laptop", None),
-    (r"\b(Framework\s+Laptop(?:\s+\d+)?)\b", "Framework", "Framework Laptop", "laptop", None),
+    (
+        r"\b(Framework\s+Laptop(?:\s+\d+)?)\b",
+        "Framework",
+        "Framework Laptop",
+        "laptop",
+        None,
+    ),
     (r"\b(Blade\s+\d{2})\b", "Razer", "Blade", "laptop", None),
 ]
 CONFIGURATION_SENSITIVE_FAMILIES = {
@@ -232,7 +274,9 @@ POLICY_REGISTRY: Dict[str, BrandSourcePolicy] = {
         shopping_platforms=list(DEFAULT_SHOPPING_PLATFORMS),
         review_video_platforms=list(DEFAULT_REVIEW_VIDEO_PLATFORMS),
         review_community_platforms=list(DEFAULT_REVIEW_COMMUNITY_PLATFORMS),
-        preferred_mcp_tools={key: list(value) for key, value in DEFAULT_PREFERRED_MCP_TOOLS.items()},
+        preferred_mcp_tools={
+            key: list(value) for key, value in DEFAULT_PREFERRED_MCP_TOOLS.items()
+        },
     ),
     "pixel_us": BrandSourcePolicy(
         policy_id="pixel_us",
@@ -241,7 +285,9 @@ POLICY_REGISTRY: Dict[str, BrandSourcePolicy] = {
         shopping_platforms=list(DEFAULT_SHOPPING_PLATFORMS),
         review_video_platforms=list(DEFAULT_REVIEW_VIDEO_PLATFORMS),
         review_community_platforms=list(DEFAULT_REVIEW_COMMUNITY_PLATFORMS),
-        preferred_mcp_tools={key: list(value) for key, value in DEFAULT_PREFERRED_MCP_TOOLS.items()},
+        preferred_mcp_tools={
+            key: list(value) for key, value in DEFAULT_PREFERRED_MCP_TOOLS.items()
+        },
     ),
     "galaxy_us": BrandSourcePolicy(
         policy_id="galaxy_us",
@@ -250,7 +296,9 @@ POLICY_REGISTRY: Dict[str, BrandSourcePolicy] = {
         shopping_platforms=list(DEFAULT_SHOPPING_PLATFORMS),
         review_video_platforms=list(DEFAULT_REVIEW_VIDEO_PLATFORMS),
         review_community_platforms=list(DEFAULT_REVIEW_COMMUNITY_PLATFORMS),
-        preferred_mcp_tools={key: list(value) for key, value in DEFAULT_PREFERRED_MCP_TOOLS.items()},
+        preferred_mcp_tools={
+            key: list(value) for key, value in DEFAULT_PREFERRED_MCP_TOOLS.items()
+        },
     ),
 }
 
@@ -264,7 +312,13 @@ def detect_product_identity(request_text: str) -> ProductIdentity:
     category = ""
     policy_id = ""
 
-    for pattern, candidate_brand, candidate_family, candidate_category, candidate_policy_id in PRODUCT_FAMILY_PATTERNS:
+    for (
+        pattern,
+        candidate_brand,
+        candidate_family,
+        candidate_category,
+        candidate_policy_id,
+    ) in PRODUCT_FAMILY_PATTERNS:
         match = re.search(pattern, text, re.IGNORECASE)
         if not match:
             continue
@@ -327,7 +381,9 @@ def resolve_policy(identity: ProductIdentity) -> Optional[BrandSourcePolicy]:
         shopping_platforms=list(DEFAULT_SHOPPING_PLATFORMS),
         review_video_platforms=list(DEFAULT_REVIEW_VIDEO_PLATFORMS),
         review_community_platforms=list(DEFAULT_REVIEW_COMMUNITY_PLATFORMS),
-        preferred_mcp_tools={key: list(value) for key, value in DEFAULT_PREFERRED_MCP_TOOLS.items()},
+        preferred_mcp_tools={
+            key: list(value) for key, value in DEFAULT_PREFERRED_MCP_TOOLS.items()
+        },
     )
 
 
@@ -366,7 +422,9 @@ def split_requested_platforms(
     if policy is not None:
         supported_platforms.update(policy.supported_platforms)
     unsupported = [
-        platform for platform in detected_platforms if platform not in supported_platforms
+        platform
+        for platform in detected_platforms
+        if platform not in supported_platforms
     ]
     return _dedupe(requested_shopping), _dedupe(requested_reviews), _dedupe(unsupported)
 
@@ -449,7 +507,9 @@ def _strip_query_context_terms(candidate: str) -> str:
 def _infer_brand_from_text(lowered_text: str, model_name: str) -> str:
     lowered_model = (model_name or "").lower()
     for brand, keywords in BRAND_KEYWORDS.items():
-        if any(keyword in lowered_text or keyword in lowered_model for keyword in keywords):
+        if any(
+            keyword in lowered_text or keyword in lowered_model for keyword in keywords
+        ):
             return brand
     return ""
 
@@ -520,9 +580,43 @@ def _infer_family_from_model(model_name: str) -> str:
 
 def _infer_category(text: str, family: str) -> str:
     lowered = f"{text} {family}".lower()
-    if any(token in lowered for token in ["iphone", "pixel", "galaxy", "phone", "smartphone", "cell phone"]):
+    if any(
+        token in lowered
+        for token in ["iphone", "pixel", "galaxy", "phone", "smartphone", "cell phone"]
+    ):
         return "phone"
-    if any(token in lowered for token in ["macbook", "surface", "thinkpad", "ideapad", "yoga", "legion", "xps", "inspiron", "alienware", "spectre", "envy", "pavilion", "omen", "victus", "zenbook", "vivobook", "rog", "tuf", "proart", "swift", "aspire", "predator", "nitro", "framework laptop", "blade", "laptop", "notebook"]):
+    if any(
+        token in lowered
+        for token in [
+            "macbook",
+            "surface",
+            "thinkpad",
+            "ideapad",
+            "yoga",
+            "legion",
+            "xps",
+            "inspiron",
+            "alienware",
+            "spectre",
+            "envy",
+            "pavilion",
+            "omen",
+            "victus",
+            "zenbook",
+            "vivobook",
+            "rog",
+            "tuf",
+            "proart",
+            "swift",
+            "aspire",
+            "predator",
+            "nitro",
+            "framework laptop",
+            "blade",
+            "laptop",
+            "notebook",
+        ]
+    ):
         return "laptop"
     if any(token in lowered for token in ["ipad", "tablet"]):
         return "tablet"

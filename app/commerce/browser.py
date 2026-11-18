@@ -76,7 +76,9 @@ class CommerceBrowserController:
     @property
     def sandbox_mode(self) -> str:
         return (
-            "daytona" if self._public_runtime.backend_name == "daytona_sandbox" else "disabled"
+            "daytona"
+            if self._public_runtime.backend_name == "daytona_sandbox"
+            else "disabled"
         )
 
     @property
@@ -99,7 +101,9 @@ class CommerceBrowserController:
         runtime = self._get_runtime(browser_mode)
         return runtime.supports_extract_content if runtime else False
 
-    async def navigate(self, url: str, browser_mode: BrowserMode = "public") -> ToolResult:
+    async def navigate(
+        self, url: str, browser_mode: BrowserMode = "public"
+    ) -> ToolResult:
         runtime = self._get_runtime(browser_mode)
         if runtime.backend_name == "daytona_sandbox":
             return await runtime.tool.execute(action="navigate_to", url=url)
@@ -133,7 +137,9 @@ class CommerceBrowserController:
         runtime = self._get_runtime(browser_mode)
         get_state = getattr(runtime.tool, "get_current_state", None)
         if not get_state:
-            return ToolResult(error="Browser state is unavailable for the selected backend")
+            return ToolResult(
+                error="Browser state is unavailable for the selected backend"
+            )
         return await get_state()
 
     async def cleanup(self) -> None:
@@ -267,7 +273,11 @@ class CommerceBrowserController:
 
             with sync_playwright() as playwright:
                 discovered = getattr(playwright.chromium, "executable_path", "") or ""
-            if discovered and Path(discovered).is_file() and os.access(discovered, os.X_OK):
+            if (
+                discovered
+                and Path(discovered).is_file()
+                and os.access(discovered, os.X_OK)
+            ):
                 return discovered
         except Exception as exc:
             logger.debug(
@@ -293,8 +303,7 @@ class CommerceBrowserController:
             data["session_mode"] = "public_only"
 
         if require_session_endpoints and not any(
-            data.get(field)
-            for field in ("cdp_url", "wss_url", "chrome_instance_path")
+            data.get(field) for field in ("cdp_url", "wss_url", "chrome_instance_path")
         ):
             return None
 

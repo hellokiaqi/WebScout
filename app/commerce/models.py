@@ -235,9 +235,9 @@ class EvidenceItem(BaseModel):
     price: Optional[PriceObservation] = None
     sentiment: Optional[Literal["positive", "neutral", "negative", "mixed"]] = None
     credibility: float = 0.5
-    source_type: Literal["official", "marketplace", "community", "media", "unknown"] = (
-        "unknown"
-    )
+    source_type: Literal[
+        "official", "marketplace", "community", "media", "unknown"
+    ] = "unknown"
     source_role: Optional[SourceRole] = None
     visual_hint: Optional[VisualGroundingHint] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
@@ -372,7 +372,9 @@ class DecisionReport(BaseModel):
 
         if self.unsupported_sources:
             lines.extend(["", "## 不支持来源"])
-            lines.extend(f"- {item}" for item in self.unsupported_sources if item.strip())
+            lines.extend(
+                f"- {item}" for item in self.unsupported_sources if item.strip()
+            )
 
         lines.extend(["", "## 来源备注"])
         lines.extend(f"- {item}" for item in self.source_notes if item and item.strip())

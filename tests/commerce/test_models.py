@@ -1,6 +1,6 @@
 from app.commerce.models import (
-    CommerceTask,
     CommerceExecutionEnvironment,
+    CommerceTask,
     DecisionReport,
     PriceObservation,
 )

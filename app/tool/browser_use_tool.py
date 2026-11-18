@@ -148,7 +148,9 @@ class BrowserUseTool(BaseTool, Generic[Context]):
 
     async def _ensure_browser_initialized(self) -> BrowserContext:
         """Ensure browser and context are initialized."""
-        effective_browser_settings = self.browser_settings_override or config.browser_config
+        effective_browser_settings = (
+            self.browser_settings_override or config.browser_config
+        )
 
         if self.browser is None:
             browser_config_kwargs = {"headless": False, "disable_security": True}

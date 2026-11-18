@@ -4,10 +4,10 @@ from app.commerce.browser import CommerceBrowserController
 from app.commerce.executor import CommerceResearchExecutor
 from app.commerce.grounding import GuiPlusGrounder
 from app.commerce.models import (
-    CommerceToolSchema,
     CommerceExecutionEnvironment,
     CommercePlan,
     CommerceTask,
+    CommerceToolSchema,
     DecisionReport,
     EvidenceItem,
     GroundingCandidate,
@@ -17,6 +17,7 @@ from app.commerce.models import (
     StepEvaluation,
     VisualGroundingHint,
 )
+
 
 __all__ = [
     "CommerceBrowserController",
